@@ -64,6 +64,16 @@ Use [the iPhone setup guide](docs/IPHONE-SETUP.md) for private home Wi-Fi access
 
 The original Git histories and remote repositories were not rewritten or pushed. Old Supabase records/files remain untouched; they have **not** been copied into the new local database because no authenticated cloud export was available. Existing browser cloud tokens are not read or sent anywhere by ScrewShop. You may need to re-import music that existed only in Supabase.
 
+## Security and sharing
+
+- **Phones and friends connect over HTTPS only.** Plain `http://` on Wi-Fi only serves the iPhone certificate profile and forwards everything else to HTTPS. The computer itself (localhost) always works.
+- **Every device has its own login key**, named when it pairs. Manage them on the computer in **Settings → DEVICES & FRIENDS**: one-time pairing code, **NEW CODE**, **REMOVE** per device, **UNPAIR ALL DEVICES**. Only key hashes are stored (`data/devices.json`).
+- **The iPhone certificate is limited by name constraints** to home-network addresses, localhost and this computer's name, so a leaked key can't impersonate public websites. Older unrestricted certificates are retired automatically (reinstall the profile once; see `docs/IPHONE-SETUP.md`).
+- **Friends anywhere:** Tailscale (free, up to 6 users). ScrewShop detects Tailscale, allows its address, and uses Tailscale's real HTTPS certificate. See `docs/FRIENDS-SETUP.md`.
+- The old Supabase cloud project refuses new sign-ups (database trigger `block_new_signups`); your existing account and files there are untouched.
+- After updating server code, double-click **Restart ScrewShop.cmd**.
+- Checks: `python -m unittest discover -s tests` includes `tests/test_security.py`.
+
 ## STUDIO: GarageBand-style multitrack
 
 - Tracks stack down the page with a **bars.beats ruler** on top and a big position display (bar.beat.sixteenth + time).

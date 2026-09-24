@@ -66,8 +66,9 @@ button:focus-visible,input:focus-visible{outline:2px solid #e2c6ff;outline-offse
 <sc-if value="{{ !authed }}" hint-placeholder-val="{{ false }}">
 <div class="login-form" style="flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;gap:14px;padding:32px 24px;box-sizing:border-box">
 <div class="chrome-text" style="font:800 28px var(--font-heading);letter-spacing:-.02em">SCREWSHOP</div>
-<div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-bottom:8px">Your private local studio. On a phone, enter the pairing code from your computer.</div>
-<input value="{{ authPassword }}" onChange="{{ onAuthPassword }}" placeholder="computer pairing code" type="password" style="border:1px solid var(--color-neutral-300);padding:14px 12px;font:14px var(--font-body);outline:none" />
+<div style="font:12px var(--font-body);color:var(--color-neutral-600);margin-bottom:8px">Private studio. Ask the ScrewShop computer for a one-time pairing code (Settings → DEVICES &amp; FRIENDS).</div>
+<input value="{{ authName }}" onChange="{{ onAuthName }}" aria-label="Your name" placeholder="your name (e.g. Travis iPhone)" maxlength="40" style="border:1px solid var(--color-neutral-300);padding:14px 12px;font:14px var(--font-body);outline:none" />
+<input value="{{ authPassword }}" onChange="{{ onAuthPassword }}" aria-label="Pairing code" placeholder="pairing code  XXXX-XXXX" autocapitalize="characters" autocomplete="one-time-code" style="border:1px solid var(--color-neutral-300);padding:14px 12px;font:14px var(--font-body);outline:none;letter-spacing:.12em" />
 <button onClick="{{ doAuth }}" style="border:0;background:var(--color-accent);color:var(--color-bg);font:800 12px var(--font-heading);letter-spacing:.1em;padding:14px;cursor:pointer">{{ authButtonLabel }}</button>
 <div style="font:11px var(--font-body);color:var(--color-accent-700);min-height:14px">{{ authError }}</div>
 </div>
@@ -391,6 +392,21 @@ button:focus-visible,input:focus-visible{outline:2px solid #e2c6ff;outline-offse
 <sc-if value="{{ midiStatusLine }}" hint-placeholder-val="{{ true }}">
 <div style="padding:0 16px 14px;font:12px/1.5 var(--font-body);color:var(--color-neutral-600)">{{ midiStatusLine }}</div>
 </sc-if>
+<div style="padding:14px 16px 6px;font:700 10px var(--font-heading);letter-spacing:.14em;color:var(--color-neutral-600);border-top:2px solid var(--color-divider)">DEVICES &amp; FRIENDS</div>
+<sc-if value="{{ showDevices }}" hint-placeholder-val="{{ false }}">
+<div style="padding:4px 16px 12px;font:12px/1.5 var(--font-body);color:var(--color-neutral-600)">One-time pairing code. Give it to one person; it changes after they connect.</div>
+<div style="display:flex;align-items:center;gap:10px;padding:0 16px 12px"><div style="font:900 26px ui-monospace,Consolas,monospace;letter-spacing:.12em;color:var(--color-text)" data-pair-code="true">{{ pairCode }}</div><button onClick="{{ newPairCode }}" style="border:1px solid var(--color-divider);background:transparent;color:var(--color-text);font:800 10px var(--font-heading);letter-spacing:.08em;padding:9px 12px;cursor:pointer">NEW CODE</button></div>
+<sc-for list="{{ deviceRows }}" as="d" hint-placeholder-count="1"><div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-top:1px solid var(--color-neutral-300)"><div style="flex:1;min-width:0"><div style="font:700 13px var(--font-body)">{{ d.name }}</div><div style="font:11px var(--font-body);color:var(--color-neutral-600)">{{ d.seen }}</div></div><button onClick="{{ d.remove }}" style="border:1px solid var(--color-divider);background:transparent;color:var(--color-accent-700);font:800 10px var(--font-heading);padding:8px 10px;cursor:pointer">REMOVE</button></div></sc-for>
+<sc-if value="{{ noDevices }}" hint-placeholder-val="{{ false }}"><div style="padding:6px 16px 10px;font:12px var(--font-body);color:var(--color-neutral-600)">No phones or friends paired.</div></sc-if>
+<div style="padding:10px 16px 4px;font:700 10px var(--font-heading);letter-spacing:.1em;color:var(--color-neutral-600)">HOME WI-FI (phone)</div>
+<sc-for list="{{ profileLinks }}" as="l" hint-placeholder-count="1"><div style="padding:2px 16px;font:12px ui-monospace,Consolas,monospace;word-break:break-all">1. profile: {{ l.url }}</div></sc-for>
+<sc-for list="{{ phoneLinks }}" as="l" hint-placeholder-count="1"><div style="padding:2px 16px;font:12px ui-monospace,Consolas,monospace;word-break:break-all">2. studio: {{ l.url }}</div></sc-for>
+<div style="padding:10px 16px 4px;font:700 10px var(--font-heading);letter-spacing:.1em;color:var(--color-neutral-600)">FRIENDS ANYWHERE (Tailscale)</div>
+<sc-if value="{{ hasTailscale }}" hint-placeholder-val="{{ false }}"><div style="padding:2px 16px;font:12px ui-monospace,Consolas,monospace;word-break:break-all">{{ tailscaleLink }}</div><div style="padding:2px 16px 8px;font:11px var(--font-body);color:var(--color-neutral-600)">{{ tailscaleNote }}</div></sc-if>
+<sc-if value="{{ !hasTailscale }}" hint-placeholder-val="{{ true }}"><div style="padding:2px 16px 8px;font:12px/1.5 var(--font-body);color:var(--color-neutral-600)">Not set up. See docs/FRIENDS-SETUP.md, then restart ScrewShop.</div></sc-if>
+<button onClick="{{ unpairAll }}" style="margin:6px 16px 14px;border:1px solid var(--color-accent-700);background:transparent;color:var(--color-accent-700);font:800 10px var(--font-heading);letter-spacing:.08em;padding:10px 12px;cursor:pointer">UNPAIR ALL DEVICES</button>
+</sc-if>
+<sc-if value="{{ notComputer }}" hint-placeholder-val="{{ false }}"><div style="padding:4px 16px 14px;font:12px/1.5 var(--font-body);color:var(--color-neutral-600)">This device is paired. Devices are added and removed on the ScrewShop computer.</div></sc-if>
 <button onClick="{{ signOut }}" style="width:100%;border:0;border-top:2px solid var(--color-divider);background:transparent;color:var(--color-accent-700);font:800 12px var(--font-heading);letter-spacing:.1em;text-align:left;padding:16px;cursor:pointer">CLOSE SETTINGS</button>
 <div style="padding:16px;border-top:1px solid var(--color-neutral-300);font:11px/1.5 var(--font-body);color:var(--color-neutral-600)">Local only · Audio and songs stay on this computer · Lyrics also export to data/Obsidian/Songs</div>
 <div style="height:34px"></div>
@@ -559,8 +575,9 @@ class Component extends DCLogic {
   connectLocal = async () => {
     try {
       const status = await window.ScrewShop.connect();
-      if (!status.paired) { this.setState({ authError: "Enter the pairing code in ScrewShop/data/phone-pairing-code.txt on your computer." }); return; }
+      if (!status.paired) { this.setState({ authError: "Enter your name and the one-time code shown on the ScrewShop computer under Settings → DEVICES & FRIENDS." }); return; }
       this.sb = window.ScrewShop.client;
+      if (status.local) this.setState({ isComputer: true });
       this.setState({ session: { user: { id: "local" } }, authError: "", saveStatus: "LOCAL" });
       await this.loadCloud();
       await this.studio.load();
@@ -574,11 +591,22 @@ class Component extends DCLogic {
 
   doAuth = async () => {
     this.setState({ authBusy: true, authError: "" });
-    const { error } = await window.ScrewShop.pair(this.state.authPassword);
+    const { error } = await window.ScrewShop.pair(this.state.authPassword, this.state.authName);
     this.setState({ authBusy: false, authPassword: "", authError: error ? error.message : "" });
     if (!error) await this.connectLocal();
   };
   signOut = () => this.setState({ settings: false });
+
+  // DEVICES & FRIENDS (computer only): one-time codes, named devices, remove any time.
+  loadDevices = async () => {
+    const overview = await window.ScrewShop.devices?.();
+    this.setState({ deviceOverview: overview || null, isComputer: !!overview });
+  };
+  deviceAction = async (body, confirmText) => {
+    if (confirmText && !confirm(confirmText)) return;
+    const { data, error } = await window.ScrewShop.deviceAction(body);
+    if (!error) this.setState({ deviceOverview: data });
+  };
 
   loadCloud = async () => {
     if (!this.sb || !this.state.session) return;
@@ -1748,6 +1776,23 @@ class Component extends DCLogic {
       authEmail: S.authEmail, authPassword: S.authPassword,
       onAuthEmail: (e) => this.setState({ authEmail: e.target.value }),
       onAuthPassword: (e) => this.setState({ authPassword: e.target.value }),
+      authName: S.authName || "", onAuthName: (e) => this.setState({ authName: e.target.value }),
+      ...(() => {
+        const O = S.deviceOverview, when = (t) => t ? new Date(t * 1000).toLocaleString() : "not yet";
+        return {
+          showDevices: !!(S.isComputer && O), notComputer: !S.isComputer,
+          pairCode: O?.code || "",
+          newPairCode: () => this.deviceAction({ action: "new_code" }),
+          unpairAll: () => this.deviceAction({ action: "remove_all" }, "Unpair every phone and friend? Each will need a new code to get back in."),
+          deviceRows: (O?.devices || []).map(d => ({ name: d.name, seen: "Paired " + when(d.created) + " · last seen " + when(d.last_seen), remove: () => this.deviceAction({ action: "remove", id: d.id }, "Remove " + d.name + "? It will need a new code to get back in.") })),
+          noDevices: !(O?.devices || []).length,
+          phoneLinks: (O?.phone_links || []).map(u => ({ url: u })),
+          profileLinks: (O?.profile_links || []).map(u => ({ url: u })),
+          tailscaleLink: O?.tailscale_link || "",
+          hasTailscale: !!O?.tailscale_link,
+          tailscaleNote: O?.tailscale_link ? (O.tailscale_cert ? "Real HTTPS certificate active: friends need no profile." : "Turn on HTTPS Certificates in the Tailscale admin console, then restart ScrewShop.") : "",
+        };
+      })(),
       authError: S.authError,
       authButtonLabel: S.authBusy ? "CONNECTING…" : "CONNECT TO COMPUTER",
       authToggleLabel: S.authMode === "signup" ? "HAVE AN ACCOUNT? SIGN IN" : "NEW HERE? CREATE ACCOUNT",
@@ -1864,7 +1909,7 @@ class Component extends DCLogic {
       rewrite: () => this.setState({ ammo: false, edit: S.lines.length - 1, draft: S.lines[S.lines.length - 1] || "", ai: Math.max(0, S.ai - 1) }),
       godPrompt: () => this.setState({ ammo: false, tab: "songs" }),
       ammoNote: "Ammo writes in the " + S.lane + " lane and stays inside your syllable range. Nothing is inserted until you tap it.",
-      settings: S.settings, openSettings: () => { this.setState({ settings: true }); this.initMidi(); }, closeSettings: () => this.setState({ settings: false }),
+      settings: S.settings, openSettings: () => { this.setState({ settings: true }); this.initMidi(); this.loadDevices(); }, closeSettings: () => this.setState({ settings: false }),
       helpOpen: S.helpOpen, openHelp: this.openHelp, openCoachFromHelp: () => this.openCoach("blend"), closeHelp: this.closeHelp, prevHelp: this.prevHelp, nextHelp: this.nextHelp,
       helpStepNo: S.helpStep + 1, helpStepCount: this.HELP_STEPS.length,
       helpTitle: this.HELP_STEPS[S.helpStep].title, helpBody: this.HELP_STEPS[S.helpStep].body,

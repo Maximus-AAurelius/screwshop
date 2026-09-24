@@ -1,35 +1,28 @@
 # ScrewShop on your iPhone
 
-This computer hosts the studio and saves all files. Keep it awake and connect the phone to the same trusted home Wi-Fi.
+This computer hosts the studio and saves all files. Keep it awake.
 
-## Current addresses
+- **At home (same Wi-Fi):** follow "Home Wi-Fi" below.
+- **Away from home, or a friend's phone:** use Tailscale instead (see [FRIENDS-SETUP.md](FRIENDS-SETUP.md)). No profile needed.
 
-- Computer: http://localhost:5050/barwork
-- iPhone setup/profile: http://192.168.1.67:5050/ScrewShop.mobileconfig
-- iPhone studio with microphone support: https://192.168.1.67:5443/barwork
+Your current addresses are always listed on the computer in **Settings → DEVICES & FRIENDS**.
 
-These addresses use the computer's current Wi-Fi IP. If the router changes it, use the new address and restart ScrewShop so its certificate includes that IP. A router DHCP reservation can keep it stable.
+## Home Wi-Fi
 
-## First connection
+1. Open ScrewShop on the computer, then **Settings → DEVICES & FRIENDS**.
+2. **If you installed a ScrewShop profile before 2026-09-24, remove it first:** iPhone Settings → General → VPN & Device Management → *ScrewShop Local Connection* → Remove Profile. The old certificate was retired because it had no limits; the new one can only vouch for your home network and this computer.
+3. In Safari on the iPhone, open the **profile** link shown in Settings (`http://<computer-ip>:5050/ScrewShop.mobileconfig`) and download it.
+4. iPhone Settings → Profile Downloaded → Install.
+5. Settings → General → About → Certificate Trust Settings → turn on **ScrewShop Private Local CA** ([Apple instructions](https://support.apple.com/en-us/102390)). You can compare its fingerprint with `data/tls/fingerprint.txt` on the computer.
+6. Open the **studio** link (`https://<computer-ip>:5443/barwork`). Plain `http://` links now forward there automatically.
+7. Type your name (e.g. "Travis iPhone") and the one-time code shown in Settings on the computer.
+8. Safari Share menu → Add to Home Screen ([Apple instructions](https://support.apple.com/guide/iphone/bookmark-a-website-iph42ab2f3a7/ios)).
 
-1. Open the ScrewShop desktop shortcut.
-2. In Safari on iPhone, visit the setup/profile URL above. Download the **ScrewShop Local Connection** profile.
-3. In iPhone Settings, open Profile Downloaded (or General > VPN & Device Management) and install that profile. It contains only this computer's certificate; no remote management or account is enrolled.
-4. Go to Settings > General > About > Certificate Trust Settings. Enable trust for **ScrewShop Private Local CA**. Apple requires this separate trust step for manually installed profiles: [Apple certificate instructions](https://support.apple.com/en-us/102390).
-5. Open the HTTPS studio URL. Enter the code from `ScrewShop/data/phone-pairing-code.txt` on the computer. This is a local pairing code, not your Supabase password.
-6. In Safari's Share menu, choose Add to Home Screen. Use Open as Web App if offered. [Apple Home Screen instructions](https://support.apple.com/guide/iphone/bookmark-a-website-iph42ab2f3a7/ios).
-7. Try importing a small recording, playing it, recording a short microphone take, and reloading to confirm it was saved. Physical-device behavior has not yet been tested.
+## Security notes
 
-You can compare the certificate's SHA-256 fingerprint with `data/tls/fingerprint.txt` on the computer before trusting it. The private signing key stays in `data/tls/ca-key.pem`, outside the web root. Remove the ScrewShop profile from the phone if you stop using this computer as your server.
-
-## If the phone cannot connect
-
-The local HTTP and HTTPS servers are listening, and certificate/pairing checks passed from this computer using its Wi-Fi address. A physical phone connection is not verified.
-
-Windows Firewall may still need to allow this app on your **Private** network. Automatic approval review blocked a combined cleanup/firewall command, so no new firewall rule was added. In Windows Security > Firewall & network protection, allow the ScrewShop Python app for Private networks, or have an administrator add an inbound rule limited to TCP ports **5050 and 5443**, **Private** profile, and **LocalSubnet** remote addresses. Do not open router/internet ports. Guest Wi-Fi may isolate devices.
-
-Plain HTTP phone access can browse/import, but iPhone microphone access needs a trusted HTTPS connection. `localhost` on the phone refers to the phone itself, not this computer.
-
-## What this installation does
-
-The Home Screen icon runs the same local web app as the computer. Data stays on the computer. It does not yet provide standalone phone storage while the computer is off, App Store distribution, or cloud sync. No Supabase connector is needed for the current local-only setup.
+- Phones and friends can only use ScrewShop over HTTPS. Plain Wi-Fi HTTP only hands out the certificate profile.
+- Each device has its own key. Remove one any time in Settings; **UNPAIR ALL DEVICES** locks everyone out.
+- Pairing codes work once. Ten wrong tries locks that device out for five minutes.
+- The certificate is limited by name constraints: even if its key leaked, it could not impersonate a bank or any public website.
+- Windows Firewall: allow ScrewShop's Python on **Private** networks only (Windows Security → Firewall & network protection → Allow an app). Never open router ports. Guest Wi-Fi may block devices from seeing each other.
+- Recording on a real iPhone has not been physically tested yet.

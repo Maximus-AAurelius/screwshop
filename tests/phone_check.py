@@ -22,7 +22,7 @@ try:
 except urllib.error.HTTPError as error:
     assert error.code == 401
 code = (ROOT / 'data/phone-pairing-code.txt').read_text().strip()
-with opener.open(urllib.request.Request(base+'/api/pair',data=json.dumps({'code':code}).encode(),headers={'X-ScrewShop':'1','Content-Type':'application/json','Origin':base})) as response:
+with opener.open(urllib.request.Request(base+'/api/pair',data=json.dumps({'code':code,'name':'Automated phone check (safe to remove)'}).encode(),headers={'X-ScrewShop':'1','Content-Type':'application/json','Origin':base})) as response:
     assert response.status == 200
     assert '; Secure' in response.headers['Set-Cookie']
 with opener.open(urllib.request.Request(base+'/api/query',data=query,headers={'X-ScrewShop':'1','Content-Type':'application/json','Origin':base})) as response:

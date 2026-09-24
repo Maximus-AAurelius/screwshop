@@ -22,6 +22,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from local_store import Store, USER_ID
+from local_devices import Devices
+import local_tailscale
 from studio_exports import save_stem, save_pack, reuse_stem, safe_export_path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -118,16 +120,38 @@ class Handler(BaseHTTPRequestHandler):
         host = self.headers.get("Host", "")
         return host in self.server.allowed_hosts
 
-    def authenticated(self):
-        if ipaddress.ip_address(self.client_address[0]).is_loopback:
-            return True
+    def is_local(self):
+        return ipaddress.ip_address(self.client_address[0]).is_loopback
+
+    def is_secure(self):
+        return isinstance(self.connection, ssl.SSLSocket)
+
+    def device(self):
+        """The paired device making this request (phones/friends only ever over HTTPS)."""
+        if not self.is_secure():
+            return None
         cookie = SimpleCookie()
         try:
             cookie.load(self.headers.get("Cookie", ""))
-            value = cookie["screwshop"].value if "screwshop" in cookie else ""
-            return hmac.compare_digest(value, self.server.session_token)
+            # "screwshop" is the shared cookie phones got before per-device logins; it maps to the migrated legacy entry.
+            name = "screwshop_device" if "screwshop_device" in cookie else "screwshop"
+            token = cookie[name].value if name in cookie else ""
         except Exception:
-            return False
+            return None
+        return self.server.devices.find(token)
+
+    def authenticated(self):
+        return self.is_local() or self.device() is not None
+
+    def https_redirect(self):
+        host = self.headers.get("Host", "").rsplit(":", 1)[0]
+        port = self.server.https_port
+        if not port:
+            return self.json({"error": {"message": "Phone access needs the secure https address"}}, 403)
+        self.send_response(308)
+        self.send_header("Location", f"https://{host}:{port}{self.path}")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def read_body(self, cap):
         length = int(self.headers.get("Content-Length", "0"))
@@ -148,27 +172,48 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"error": {"message": "Cross-origin write denied"}}, 403)
         if self.headers.get("X-ScrewShop") != "1":
             return self.json({"error": {"message": "Missing request header"}}, 403)
+        if not self.is_local() and not self.is_secure():
+            return self.json({"error": {"message": "Use the secure https address for phones and friends"}}, 403)
         path = urlsplit(self.path).path
+        devices = self.server.devices
         try:
             if path == "/api/pair":
                 req = json.loads(self.read_body(1024))
-                address = self.client_address[0]
-                attempts, last = self.server.pair_attempts.get(address, (0, 0))
-                if time.monotonic() - last > 300:
-                    attempts = 0
-                if attempts >= 10:
-                    return self.json({"error": {"message": "Wait five minutes before trying again"}}, 429)
-                self.server.pair_attempts[address] = (attempts + 1, time.monotonic())
-                if not hmac.compare_digest(str(req.get("code", "")), self.server.pair_code):
-                    return self.json({"error": {"message": "Incorrect pairing code"}}, 401)
+                address, now = self.client_address[0], time.monotonic()
+                with devices.lock:
+                    attempts, last = devices.attempts.get(address, (0, 0))
+                    if now - last > 300:
+                        attempts = 0
+                    devices.failures = [t for t in devices.failures if now - t < 600]
+                    if attempts >= 10 or len(devices.failures) >= 30:
+                        return self.json({"error": {"message": "Too many tries. Wait a few minutes, then make a NEW CODE on the computer."}}, 429)
+                    if not devices.check_code(req.get("code", "")):
+                        devices.attempts[address] = (attempts + 1, now)
+                        devices.failures.append(now)
+                        return self.json({"error": {"message": "Incorrect or already-used pairing code"}}, 401)
+                    devices.attempts.pop(address, None)
+                    token = devices.pair(req.get("name"))
                 self.send_response(200)
-                secure = "; Secure" if isinstance(self.connection, ssl.SSLSocket) else ""
-                self.send_header("Set-Cookie", f"screwshop={self.server.session_token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000{secure}")
+                self.send_header("Set-Cookie", f"screwshop_device={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=15552000; Secure")
                 self.send_header("Content-Length", "2")
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(b"{}")
                 return
+            if path == "/api/devices":
+                if not self.is_local():
+                    return self.json({"error": {"message": "Manage devices from the computer running ScrewShop"}}, 403)
+                req = json.loads(self.read_body(4096))
+                action = req.get("action")
+                if action == "remove":
+                    devices.remove(str(req.get("id", "")))
+                elif action == "remove_all":
+                    devices.remove_all()
+                elif action == "new_code":
+                    devices.new_code()
+                else:
+                    raise ValueError("Unknown device action")
+                return self.json({"data": self.device_overview(), "error": None})
             if not self.authenticated():
                 return self.json({"error": {"message": "Pair this phone with the computer first"}}, 401)
             if path == "/api/export":
@@ -215,6 +260,20 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             self.json({"error": {"message": "Local save failed. Check disk space and the server log."}}, 500)
 
+    def device_overview(self):
+        devices, server = self.server.devices, self.server
+        hosts = sorted({h.rsplit(":", 1)[0] for h in server.allowed_hosts} - {"localhost", "127.0.0.1"})
+        port = server.https_port
+        lan = [h for h in hosts if not h.endswith(".ts.net") and not h.startswith("100.") and h[0].isdigit()]
+        return {
+            "code": devices.code[:4] + "-" + devices.code[4:],
+            "devices": devices.listing(),
+            "phone_links": [f"https://{h}:{port}/barwork" for h in lan] if port else [],
+            "profile_links": [f"http://{h}:{server.server_port}/ScrewShop.mobileconfig" for h in lan],
+            "tailscale_link": f"https://{server.tailscale_name}:{port}/barwork" if port and server.tailscale_name else None,
+            "tailscale_cert": bool(server.tailscale_cert),
+        }
+
     def do_GET(self):
         if not self.valid_host():
             return self.json({"error": {"message": "Invalid host"}}, 403)
@@ -223,7 +282,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.file(self.server.store.root / "tls/ScrewShop.mobileconfig")
         if path == "/api/status":
             paired = self.authenticated()
-            return self.json({"project": "ScrewShop", "paired": paired, "storage": "local", "worker": capabilities() if paired else None})
+            return self.json({"project": "ScrewShop", "paired": paired, "local": self.is_local(), "secure": self.is_secure() or self.is_local(), "storage": "local", "worker": capabilities() if paired else None})
+        if not self.is_local() and not self.is_secure():
+            # Plain Wi-Fi HTTP only hands out the iPhone certificate profile; everything else moves to HTTPS.
+            return self.https_redirect()
+        if path == "/api/devices":
+            if not self.is_local():
+                return self.json({"error": {"message": "Manage devices from the computer running ScrewShop"}}, 403)
+            return self.json({"data": self.device_overview(), "error": None})
         if path.startswith("/downloads/"):
             if not self.authenticated():
                 return self.json({"error": {"message": "Pair this device first"}}, 401)
@@ -304,27 +370,30 @@ class Handler(BaseHTTPRequestHandler):
             print("Local request failed", flush=True)
 
 
-def make_server(data, port=5050, lan=False):
-    store = Store(data, beats_root=ROOT / "Beats" if Path(data).resolve() == (ROOT / "data").resolve() else None)
+def make_server(data, port=5050, lan=False, store=None, devices=None, tailscale=None, https_port=None):
+    store = store or Store(data, beats_root=ROOT / "Beats" if Path(data).resolve() == (ROOT / "data").resolve() else None)
     (store.beats_root / "sound packs").mkdir(parents=True, exist_ok=True)
     server = ThreadingHTTPServer(("0.0.0.0" if lan else "127.0.0.1", port), Handler)
     server.daemon_threads = True
     server.store = store
+    if devices is None:
+        devices = Devices(store.root)
+    if not hasattr(devices, "attempts"):
+        devices.attempts, devices.failures = {}, []
+    server.devices = devices
     port = server.server_port
     hosts = {"localhost", "127.0.0.1"}
     if lan:
         hosts.add(socket.gethostname())
         hosts.update(socket.gethostbyname_ex(socket.gethostname())[2])
+        if tailscale:
+            hosts.update(tailscale.get("ips") or [])
+            if tailscale.get("name"):
+                hosts.add(tailscale["name"])
     server.allowed_hosts = {f"{host}:{port}" for host in hosts}
-    code_file = store.root / "phone-pairing-code.txt"
-    if not code_file.exists():
-        code_file.write_text(secrets.token_hex(4), encoding="utf-8")
-    server.pair_code = code_file.read_text(encoding="utf-8").strip()
-    token_file = store.root / "device-session-secret.txt"
-    if not token_file.exists():
-        token_file.write_text(secrets.token_urlsafe(32), encoding="utf-8")
-    server.session_token = token_file.read_text(encoding="utf-8").strip()
-    server.pair_attempts = {}
+    server.tailscale_name = (tailscale or {}).get("name")
+    server.tailscale_cert = None
+    server.https_port = https_port
     return server
 
 
@@ -335,19 +404,46 @@ def main():
     parser.add_argument("--https-port", type=int, help="Also serve HTTPS for iPhone recording")
     parser.add_argument("--data", type=Path, default=ROOT / "data")
     args = parser.parse_args()
-    server = make_server(args.data, args.port, args.lan)
+    tailscale = local_tailscale.info() if args.lan else None
+    server = make_server(args.data, args.port, args.lan, tailscale=tailscale, https_port=args.https_port)
     secure_server = None
     if args.https_port:
         from local_tls import prepare
-        tls = prepare(server.store.root)
-        secure_server = make_server(args.data, args.https_port, args.lan)
-        secure_server.store = server.store
+        tls = prepare(server.store.root, extra_names=[tailscale["name"]] if tailscale and tailscale.get("name") else [], extra_ips=(tailscale or {}).get("ips") or [])
+        secure_server = make_server(args.data, args.https_port, args.lan, store=server.store, devices=server.devices, tailscale=tailscale, https_port=args.https_port)
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(tls / 'server.pem', tls / 'server-key.pem')
+
+        def load_tailscale_cert():
+            # A real, publicly trusted certificate for friends on Tailscale (no profile to install).
+            pair = local_tailscale.certificate(tailscale["name"], tls) if tailscale and tailscale.get("name") else None
+            if pair:
+                ts_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                ts_context.minimum_version = ssl.TLSVersion.TLSv1_2
+                ts_context.load_cert_chain(pair[0], pair[1])
+                server.tailscale_cert = secure_server.tailscale_cert = ts_context
+
+        def pick_certificate(sock, name, _context):
+            if name and secure_server.tailscale_cert and name.lower() == (tailscale or {}).get("name"):
+                sock.context = secure_server.tailscale_cert
+
+        def renew_forever():
+            while True:
+                try:
+                    load_tailscale_cert()
+                except Exception:
+                    pass
+                time.sleep(12 * 3600)
+
+        context.sni_callback = pick_certificate
+        if tailscale:
+            threading.Thread(target=renew_forever, daemon=True).start()
         secure_server.socket = context.wrap_socket(secure_server.socket, server_side=True)
         threading.Thread(target=secure_server.serve_forever, daemon=True).start()
         print(f"Private HTTPS: https://localhost:{args.https_port}/barwork", flush=True)
+        if tailscale and tailscale.get("name"):
+            print(f"Friends on Tailscale: https://{tailscale['name']}:{args.https_port}/barwork", flush=True)
     stop = threading.Event()
     threading.Thread(target=worker, args=(server.store, stop), daemon=True).start()
     print(f"ScrewShop: http://localhost:{args.port}/barwork", flush=True)
@@ -355,7 +451,7 @@ def main():
     print(capabilities()["message"], flush=True)
     if args.lan:
         print("Phone addresses: " + ", ".join("http://" + h + "/barwork" for h in sorted(server.allowed_hosts) if not h.startswith(("localhost", "127."))), flush=True)
-        print("Pairing code is in data/phone-pairing-code.txt. Use trusted home Wi-Fi only.", flush=True)
+        print("Pair phones and friends from Settings > DEVICES & FRIENDS on this computer.", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

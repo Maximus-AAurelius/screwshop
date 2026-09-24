@@ -38,7 +38,13 @@
       if (status.project !== "ScrewShop") throw new Error("This is an old server. Open Start ScrewShop.cmd.");
       return status;
     },
-    pair: (code) => request("/api/pair", { code }),
+    pair: (code, name) => request("/api/pair", { code, name }),
+    devices: async () => {
+      const response = await fetch("/api/devices");
+      if (!response.ok) return null; // only the computer running ScrewShop can manage devices
+      return (await response.json()).data;
+    },
+    deviceAction: (body) => request("/api/devices", body),
     export: (options) => request("/api/export", options),
     client: {
       from: (table) => new Query(table),
