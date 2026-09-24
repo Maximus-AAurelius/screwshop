@@ -22,6 +22,24 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID, ExtendedKeyUsageOID
 
 
+
+def local_addresses():
+    """This computer's IPv4 addresses; never crashes if name lookup fails (e.g. network not up yet)."""
+    found = set()
+    try:
+        found.update(socket.gethostbyname_ex(socket.gethostname())[2])
+    except OSError:
+        pass
+    try:  # the address used to reach the local network, without sending anything
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        probe.connect(("192.168.0.1", 9))
+        found.add(probe.getsockname()[0])
+        probe.close()
+    except OSError:
+        pass
+    return sorted(a for a in found if not a.startswith("0."))
+
+
 PRIVATE_NETS = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "100.64.0.0/10", "169.254.0.0/16"]
 
 
@@ -78,7 +96,7 @@ def prepare(data, extra_names=(), extra_ips=()):
         root_cert_path.write_bytes(ca.public_bytes(serialization.Encoding.PEM))
     permitted_dns = _permitted_dns(ca)
     nets = [ipaddress.ip_network(n) for n in PRIVATE_NETS]
-    hosts = sorted({'localhost', host, '127.0.0.1', *socket.gethostbyname_ex(socket.gethostname())[2], *[n.lower() for n in extra_names if n], *extra_ips})
+    hosts = sorted({'localhost', host, '127.0.0.1', *local_addresses(), *[n.lower() for n in extra_names if n], *extra_ips})
     sans = []
     for name in hosts:
         try:

@@ -23,6 +23,7 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from local_store import Store, USER_ID
 from local_devices import Devices
+from local_tls import local_addresses
 import local_tailscale
 from studio_exports import save_stem, save_pack, reuse_stem, safe_export_path
 
@@ -385,7 +386,7 @@ def make_server(data, port=5050, lan=False, store=None, devices=None, tailscale=
     hosts = {"localhost", "127.0.0.1"}
     if lan:
         hosts.add(socket.gethostname())
-        hosts.update(socket.gethostbyname_ex(socket.gethostname())[2])
+        hosts.update(local_addresses())
         if tailscale:
             hosts.update(tailscale.get("ips") or [])
             if tailscale.get("name"):
