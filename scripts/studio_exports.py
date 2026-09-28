@@ -6,6 +6,8 @@ import tempfile
 import uuid
 import wave
 import zipfile
+import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 FULL_STEMS = ("vocals", "drums", "bass", "guitar", "piano", "other", "instrumental")
@@ -19,9 +21,51 @@ def safe_export_path(store, relative):
     if not isinstance(relative, str) or "\\" in relative or ":" in relative:
         raise ValueError("Invalid export path")
     path = (store.beats_root / relative).resolve()
-    if not path.is_relative_to(store.beats_root) or path.suffix.lower() not in {".wav", ".zip"}:
+    if not path.is_relative_to(store.beats_root) or path.suffix.lower() not in {".wav", ".zip", ".mp3"}:
         raise ValueError("Invalid export path")
     return path
+
+
+@lru_cache(maxsize=1)
+def mp3_available():
+    try:
+        import imageio_ffmpeg
+        result = subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), '-hide_banner', '-encoders'],
+                                capture_output=True, text=True, timeout=15,
+                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        return result.returncode == 0 and 'libmp3lame' in result.stdout
+    except (ImportError, OSError, RuntimeError, subprocess.SubprocessError):
+        return False
+
+
+def save_mp3(store, storage_path, name):
+    """Encode a local PCM WAV; never let FFmpeg resolve user-supplied URLs/playlists."""
+    source = store.asset('beats', storage_path)
+    if source.suffix.lower() != '.wav' or not source.is_file():
+        raise ValueError('Choose a saved WAV render to encode')
+    try:
+        with wave.open(str(source), 'rb') as audio:
+            if audio.getnframes() / audio.getframerate() > 1800:
+                raise ValueError('Export up to 30 minutes at a time')
+    except (wave.Error, EOFError) as exc:
+        raise ValueError('MP3 export requires a valid PCM WAV render') from exc
+    if not mp3_available():
+        raise ValueError('MP3 encoder unavailable on this computer. Use WAV export.')
+    import imageio_ffmpeg
+    key = 'mp3-' + uuid.uuid4().hex
+    relative = 'exports/' + key + '.mp3'
+    destination = safe_export_path(store, relative)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), '-nostdin', '-v', 'error',
+                        '-protocol_whitelist', 'file,pipe', '-i', str(source),
+                        '-map', '0:a:0', '-vn', '-c:a', 'libmp3lame', '-b:a', '320k', str(destination)],
+                       capture_output=True, check=True, timeout=300,
+                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except (OSError, subprocess.SubprocessError) as exc:
+        destination.unlink(missing_ok=True)
+        raise ValueError('MP3 encoding failed. Your WAV render is preserved; retry or export WAV.') from exc
+    return record_export(store, key, relative, slug(name) + '.mp3')
 
 
 def record_export(store, key, relative, name):

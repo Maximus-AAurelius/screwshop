@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory() as temp:
             page.get_by_role('button',name='SCREW IT',exact=True).click()
             for _ in range(3): page.get_by_role('button',name='NEXT →',exact=True).click()
             page.screenshot(path=str(OUT/'sync-5-coach.png'))
-            page.get_by_role('button',name='WRITE',exact=True).click()
+            page.get_by_role('button',name='NOTEPAD',exact=True).click()
             page.get_by_label('Open the Trill walkthrough').click()
             page.get_by_role('button',name=re.compile('SCREW ROOM')).click()
             page.get_by_text('Two roads, one highway').wait_for()

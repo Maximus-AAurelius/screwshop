@@ -7,6 +7,8 @@
     "start": ".venv\\Scripts\\python.exe scripts/local_server.py",
     "test": ".venv\\Scripts\\python.exe -m unittest discover -s tests",
     "test:browser": ".venv\\Scripts\\python.exe tests/browser.py",
+    "test:sampler": ".venv\\Scripts\\python.exe tests/sampler_browser.py",
+    "test:sampler-migration": ".venv\\Scripts\\python.exe tests/sampler_migration_browser.py",
     "vendor": "node scripts/vendor.cjs"
   },
   "dependencies": {

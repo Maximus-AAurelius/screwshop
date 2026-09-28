@@ -7,7 +7,7 @@ import zipfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from local_store import Store
-from studio_exports import FULL_STEMS, save_stem, save_pack, reuse_stem, safe_export_path
+from studio_exports import FULL_STEMS, save_stem, save_pack, reuse_stem, safe_export_path, save_mp3, mp3_available
 
 
 def seed_pack(store):
@@ -30,6 +30,25 @@ def seed_pack(store):
 
 
 class ExportTests(unittest.TestCase):
+    def test_mp3_encode_and_input_boundaries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(directory)
+            seed_pack(store)
+            for path in ['../private.wav', 'https://example.com/a.wav', 'local/missing.wav']:
+                with self.assertRaises(ValueError):
+                    save_mp3(store, path, 'Nope')
+            bad = store.asset('beats', 'local/playlist.wav')
+            bad.write_text('file https://example.com/private')
+            with self.assertRaises(ValueError):
+                save_mp3(store, 'local/playlist.wav', 'Nope')
+            if not mp3_available():
+                self.skipTest('Local MP3 encoder unavailable')
+            result = save_mp3(store, 'local/source.wav', 'Beat sharing')
+            row = store.query({'table':'exports','filters':[['id',result['id']]],'single':'required'})
+            self.assertEqual(row['download_name'], 'Beat-sharing.mp3')
+            self.assertGreater(safe_export_path(store, row['relative_path']).stat().st_size, 1000)
+            self.assertTrue(store.asset('beats', 'local/source.wav').is_file())
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.store = Store(self.temp.name)

@@ -51,6 +51,8 @@ class Security(unittest.TestCase):
         self.assertEqual(self.req("POST", "/api/query", {"table": "songs"}, secure=False)[0], 403)
         self.assertEqual(self.req("POST", "/api/query", {"table": "songs"})[0], 401)
         self.assertEqual(self.req("GET", "/audio/beats/x.wav")[0], 401)
+        self.assertEqual(self.req("POST", "/api/export", {"kind": "mp3", "storage_path": "local/x.wav"})[0], 401)
+        self.assertEqual(self.req("GET", "/downloads/private-mp3")[0], 401)
         self.assertEqual(self.req("POST", "/api/query", {"table": "songs"}, cookie="screwshop=OLDSECRET")[0], 200)
         code = self.http.devices.code
         self.assertEqual(self.req("POST", "/api/pair", {"code": "AAAA-AAAA"})[0], 401)

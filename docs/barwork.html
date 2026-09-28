@@ -14,6 +14,10 @@
 <script src="/vendor/react-dom.production.min.js"></script>
 <script src="/local-client.js"></script>
 <script src="/recording-studio.js"></script>
+<script src="/notepad.js"></script>
+<script src="/studio-workspace.js"></script>
+<script src="/sampler.js"></script>
+<link rel="stylesheet" href="/sampler.css">
 <script src="./support.js"></script>
 </head>
 <body>
@@ -110,35 +114,7 @@ button:focus-visible,input:focus-visible{outline:2px solid #e2c6ff;outline-offse
 </div></div>
 
 <sc-if value="{{ isWrite }}" hint-placeholder-val="{{ true }}">
-<div style="flex:1;min-height:0;display:flex;flex-direction:column">
-<div style="flex:none;display:flex;align-items:stretch;border-bottom:2px solid var(--color-divider);background:var(--color-neutral-100)">
-<div style="flex:1;padding:8px 14px;border-right:1px solid var(--color-neutral-300)"><div style="font:700 9px var(--font-heading);letter-spacing:.12em;color:var(--color-neutral-600)">BARS</div><div style="font:700 15px var(--font-heading);font-variant-numeric:tabular-nums">{{ barCount }}</div></div>
-<div style="flex:1;padding:8px 14px;border-right:1px solid var(--color-neutral-300)"><div style="font:700 9px var(--font-heading);letter-spacing:.12em;color:var(--color-neutral-600)">AVG SYLL</div><div style="font:700 15px var(--font-heading);font-variant-numeric:tabular-nums">{{ avgSyl }}</div></div>
-<button onClick="{{ cycleSens }}" style="flex:1.1;padding:8px 14px;border:0;border-right:1px solid var(--color-neutral-300);background:transparent;text-align:left;cursor:pointer" style-hover="background:rgba(32,30,29,.06)"><div style="font:700 9px var(--font-heading);letter-spacing:.12em;color:var(--color-neutral-600)">RHYMES</div><div style="font:700 15px var(--font-heading);color:var(--color-accent-700)">{{ sensLabel }}</div></button>
-<button onClick="{{ openAmmo }}" style="flex:none;width:70px;border:0;background:var(--color-accent);color:var(--color-bg);font:800 12px var(--font-heading);letter-spacing:.1em;cursor:pointer;text-align:left;padding:0 12px" style-hover="background:var(--color-accent-600)">AMMO</button>
-</div>
-
-<div style="flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch">
-<div style="padding:0 0 140px">
-<div style="padding:12px 16px 8px;font:700 10px var(--font-heading);letter-spacing:.14em;color:var(--color-neutral-600);border-bottom:1px solid var(--color-neutral-300)">{{ sectionLabel }}</div>
-<sc-for list="{{ bars }}" as="b" hint-placeholder-count="6">
-<div style="display:flex;align-items:flex-start;border-bottom:1px solid var(--color-neutral-300);background:{{ b.rowBg }}">
-<div style="flex:none;width:32px;padding:11px 0 11px 14px;font:700 10px var(--font-heading);color:var(--color-neutral-500);font-variant-numeric:tabular-nums">{{ b.n }}</div>
-<div style="flex:1;min-width:0;padding:8px 8px 10px 2px">
-<sc-if value="{{ b.editing }}" hint-placeholder-val="{{ false }}">
-<input value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ onKey }}" onBlur="{{ commit }}" autoFocus="{{ true }}" placeholder="type the bar…" style="width:100%;box-sizing:border-box;border:0;border-bottom:2px solid var(--color-accent);background:transparent;font-family:var(--font-body);font-size:17px;line-height:1.5;letter-spacing:-.01em;color:var(--color-text);padding:2px 0 5px;outline:none" />
-</sc-if>
-<sc-if value="{{ b.reading }}" hint-placeholder-val="{{ true }}">
-<div style="font-size:17px;line-height:1.55;letter-spacing:-.01em;word-break:break-word"><sc-for list="{{ b.toks }}" as="tk" hint-placeholder-count="8"><span onClick="{{ tk.onTap }}" style="white-space:pre-wrap;cursor:pointer;background:{{ tk.bg }};color:{{ tk.fg }};font-weight:{{ tk.fw }};box-shadow:{{ tk.ring }};padding:1px 0">{{ tk.t }}</span></sc-for></div>
-</sc-if>
-</div>
-<button onClick="{{ b.onEdit }}" style="flex:none;width:46px;align-self:stretch;border:0;border-left:1px solid var(--color-neutral-300);background:{{ b.sylBg }};color:{{ b.sylFg }};font:700 13px var(--font-heading);font-variant-numeric:tabular-nums;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">{{ b.syl }}</button>
-</div>
-</sc-for>
-<button onClick="{{ addBar }}" style="width:100%;border:0;border-bottom:2px solid var(--color-divider);background:transparent;text-align:left;padding:16px;font:800 12px var(--font-heading);letter-spacing:.12em;color:var(--color-accent);cursor:pointer" style-hover="background:var(--color-accent-100)">+ ADD BAR</button>
-<div style="padding:14px 16px;font:11px/1.5 var(--font-body);color:var(--color-neutral-600)">Tap a coloured word for rhymes, swaps and multis. Tap a syllable count to edit that bar.</div>
-</div>
-</div>
+<div id="ss-notepad" class="ss-notepad">
 </div>
 </sc-if>
 
@@ -150,21 +126,16 @@ button:focus-visible,input:focus-visible{outline:2px solid #e2c6ff;outline-offse
 <div class="gb-group"><button onClick="{{ studioCycle }}" class="{{ studioCycleClass }}" title="Cycle (C): loop the yellow region in the ruler">⟲ CYCLE</button><button onClick="{{ studioMetro }}" class="{{ studioMetroClass }}" title="Metronome (K)">♩ CLICK</button><button onClick="{{ studioCountIn }}" class="{{ studioCountClass }}" title="One bar of clicks before recording">1234 COUNT-IN</button></div>
 <label class="gb-tempo">TEMPO<input aria-label="Project tempo" type="number" min="30" max="300" value="{{ studioBpm }}" onChange="{{ studioSetBpm }}" /></label>
 <div class="gb-group"><button onClick="{{ studioZoomOut }}" aria-label="Zoom out" title="Zoom out">−</button><button onClick="{{ studioZoomIn }}" aria-label="Zoom in" title="Zoom in">+</button></div>
-<div class="gb-group gb-right"><button onClick="{{ studioAddTrack }}">+ TRACK</button><button onClick="{{ studioImport }}">IMPORT AUDIO</button><button onClick="{{ studioSources }}" class="{{ studioLoopsClass }}">LOOPS &amp; FILES</button></div>
+<div class="gb-group gb-right"><button onClick="{{ studioAddTrack }}">+ TRACK</button><button onClick="{{ studioImport }}">IMPORT AUDIO</button><button onClick="{{ studioSources }}" class="{{ studioLoopsClass }}">SOUND LIBRARY</button><button onClick="{{ studioOxygen }}">M-AUDIO / SAMPLER</button><button onClick="{{ studioExportMix }}">EXPORT MIX WAV</button><sc-if value="{{ studioHasMp3 }}"><button onClick="{{ studioExportMp3 }}">EXPORT MIX MP3</button></sc-if></div>
 </div>
 <sc-if value="{{ studioPending }}" hint-placeholder-val="{{ false }}"><button onClick="{{ studioRetry }}">RETRY SAVE RECORDING</button></sc-if>
+<div class="gb-edit-bar" role="toolbar" aria-label="Region editing"><button onClick="{{ studioSplit }}">&#9986; SPLIT</button><button onClick="{{ studioDeleteRegion }}">DELETE REGION</button><button onClick="{{ studioUndo }}">&#8630; UNDO</button><button onClick="{{ studioRedo }}">&#8631; REDO</button><span>Double-click for region options. Drag scissors down to cut. Drag the white triangle to position playback or edits.</span></div>
 <div class="gb-main">
 <div id="gb-arrange" class="gb-arrange" aria-label="Arrange: tracks and clips"></div>
-<sc-if value="{{ studioShowSources }}" hint-placeholder-val="{{ false }}"><aside class="gb-browser" aria-label="Loops and files">
-<h3>LOOPS &amp; FILES</h3><p>Drag onto a track, or onto the empty lane for a new track. On a phone, tap + ADD.</p>
-<h4>SPLIT STEMS &amp; SOUND PACKS</h4>
-<sc-for list="{{ studioStemsList }}" as="f" hint-placeholder-count="2"><div class="gb-loop" draggable="true" data-loop-url="{{ f.url }}" data-loop-name="{{ f.name }}"><span class="gb-grip">⠿</span><span class="gb-loop-name">{{ f.name }}</span><button onClick="{{ f.add }}" aria-label="{{ f.addLabel }}">+ ADD</button></div></sc-for>
-<sc-if value="{{ studioNoStems }}" hint-placeholder-val="{{ false }}"><small>No splits yet. Use SPLIT below or the PACKS tab.</small></sc-if>
-<h4>YOUR SONGS</h4>
-<sc-for list="{{ studioLibrary }}" as="f" hint-placeholder-count="2"><div class="gb-loop" draggable="true" data-loop-url="{{ f.url }}" data-loop-name="{{ f.name }}"><span class="gb-grip">⠿</span><span class="gb-loop-name">{{ f.name }}</span><button onClick="{{ f.add }}" aria-label="{{ f.addLabel }}">+ ADD</button><button onClick="{{ f.use }}" title="Put on Track 1 as the beat">BEAT</button><button onClick="{{ f.split }}" title="Split out the instrumental">SPLIT</button><small>{{ f.status }}</small></div></sc-for>
-</aside></sc-if>
+<sc-if value="{{ studioShowSources }}" hint-placeholder-val="{{ true }}"><aside id="ss-sound-library" class="gb-browser" aria-label="Sound library"></aside></sc-if>
 </div>
 <div class="recording-hint">{{ studioHint }}</div>
+
 </div></sc-if>
 
 <sc-if value="{{ isScrew }}" hint-placeholder-val="{{ false }}"><div class="dj-scroll"><div class="dj-intro"><span>THE SCREW ROOM</span><small>Two records. One mix. Your pace.</small></div><sc-if value="{{ coachOpen }}" hint-placeholder-val="{{ false }}"><section class="dj-coach" aria-label="Trill mixing lessons"><div class="coach-tabs"><sc-for list="{{ coachGuides }}" as="g" hint-placeholder-count="3"><button onClick="{{ g.onTap }}" class="coach-tab" style="background:{{ g.bg }};color:{{ g.fg }}">{{ g.name }}</button></sc-for><button onClick="{{ closeCoach }}" class="coach-close" aria-label="Close Trill lessons">×</button></div><div class="coach-body"><img class="guide-avatar" src="/assets/trill.png" alt="Trill" /><div><small>TRILL · STEP {{ coachStepNo }} OF {{ coachStepCount }}</small><h4>{{ coachTitle }}</h4><p>{{ coachBody }}</p></div></div><div class="coach-nav"><button onClick="{{ prevCoach }}" style="color:{{ coachBackFg }}">← BACK</button><button onClick="{{ nextCoach }}" class="coach-next">{{ coachNextLabel }}</button></div></section></sc-if><sc-if value="{{ !coachOpen }}" hint-placeholder-val="{{ true }}"><button onClick="{{ openCoach }}" class="coach-open"><img src="/assets/trill.png" alt="" />LEARN TO MIX WITH TRILL →</button></sc-if><div class="dj-console"><section class="dj-deck" id="turntable-A">
@@ -183,98 +154,7 @@ button:focus-visible,input:focus-visible{outline:2px solid #e2c6ff;outline-offse
 <label class="deck-speed" style="box-shadow:{{ hlSpeed }}">SCREW SPEED <b>{{ deckBRateLabel }}</b><input aria-label="Deck B speed" type="range" min="0.25" max="2" step="0.01" value="{{ deckBRate }}" onChange="{{ onDeckBRate }}" /></label>
 </section></div><section class="dj-sync" aria-label="Line up both decks"><div class="sync-group" style="box-shadow:{{ hlBoth }}"><span>BOTH DECKS</span><div><button onClick="{{ playBothDecks }}" class="sync-go">▶ PLAY BOTH</button><button onClick="{{ pauseBothDecks }}">❚❚ PAUSE BOTH</button><button onClick="{{ stopBothDecks }}">■ STOP BOTH</button></div></div><div class="sync-group" style="box-shadow:{{ hlMatch }}"><span>LINE UP B WITH A</span><div><button onClick="{{ matchBtoA }}">MATCH B → A</button></div></div><div class="sync-group" style="box-shadow:{{ hlNudge }}"><span>NUDGE B · ◀ BEHIND · AHEAD ▶</span><div><sc-for list="{{ nudgeOpts }}" as="n" hint-placeholder-count="6"><button onClick="{{ n.onTap }}" aria-label="{{ n.aria }}">{{ n.label }}</button></sc-for></div></div></section><p class="dj-instructions">Each deck's clock shows where you are (big number, left), time left (right) and the song's length. LOAD TRACK on each deck, tap a record to play, then blend A and B with the crossfader. PLAY BOTH / PAUSE BOTH / STOP BOTH run the decks together, MATCH B → A puts deck B at deck A's spot and speed, and NUDGE moves B behind or ahead. CUE returns to the beginning. Click a waveform twice to mark a loop and enable CHOP. SYRUP adds reverb. Slowing a record lowers both pitch and tempo.</p><p class="dj-output">OUTPUT · Both decks → your computer’s selected speakers or headphones. The top Record button captures your microphone.</p></div></sc-if>
 
-<sc-if value="{{ isBeats }}" hint-placeholder-val="{{ false }}">
-<div style="flex:1;min-height:0;overflow:auto"><div style="padding:0 0 40px">
-<div style="padding:12px 16px;border-bottom:2px solid var(--color-divider);display:flex;align-items:center;gap:12px">
-<button onClick="{{ toggleSequencer }}" style="flex:none;padding:10px 16px;border:0;background:{{ seqPlayBg }};color:{{ seqPlayFg }};font:800 11px var(--font-heading);letter-spacing:.1em;cursor:pointer">{{ seqPlayLabel }}</button>
-<div style="flex:none;font:700 9px var(--font-heading);letter-spacing:.08em;color:var(--color-neutral-600)">BPM</div>
-<input type="range" min="60" max="180" step="1" value="{{ seqBpm }}" onChange="{{ onSeqBpm }}" style="flex:1" />
-<div style="flex:none;font:800 14px var(--font-heading);font-variant-numeric:tabular-nums;min-width:34px;text-align:right">{{ seqBpm }}</div>
-</div>
-
-<div style="padding:12px 16px 6px;font:700 10px var(--font-heading);letter-spacing:.14em;color:var(--color-neutral-600)">PADS — tap to play, trigger from your MIDI keyboard (notes 36–43), or LOAD a sound below</div>
-<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:0 16px 12px">
-<sc-for list="{{ pads }}" as="p" hint-placeholder-count="8">
-<button onClick="{{ p.onTrigger }}" style="aspect-ratio:1;border:1px solid var(--color-divider);background:{{ p.bg }};color:{{ p.fg }};font:800 10px var(--font-heading);letter-spacing:.04em;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:6px;text-align:center">
-<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">{{ p.name }}</span>
-<span style="font:700 8px var(--font-heading);color:{{ p.hintColor }}">{{ p.hint }}</span>
-</button>
-</sc-for>
-</div>
-<div style="padding:0 16px 16px;display:flex;gap:8px;flex-wrap:wrap;border-bottom:2px solid var(--color-divider)">
-<sc-for list="{{ pads }}" as="p2" hint-placeholder-count="8">
-<button onClick="{{ p2.onLoad }}" style="padding:6px 10px;border:1px solid var(--color-divider);background:transparent;color:var(--color-neutral-600);font:700 9px var(--font-heading);cursor:pointer">LOAD {{ p2.num }}</button>
-</sc-for>
-</div>
-
-<div style="padding:12px 16px 8px;font:700 10px var(--font-heading);letter-spacing:.14em">SEQUENCER · 16 STEPS</div>
-<sc-for list="{{ seqRows }}" as="row" hint-placeholder-count="8">
-<div style="display:flex;align-items:center;gap:6px;padding:4px 16px">
-<div style="flex:none;width:70px;font:700 9px var(--font-heading);color:var(--color-neutral-600);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ row.name }}</div>
-<div style="flex:1;display:grid;grid-template-columns:repeat(16,1fr);gap:3px">
-<sc-for list="{{ row.steps }}" as="s" hint-placeholder-count="16">
-<button onClick="{{ s.onToggle }}" style="aspect-ratio:1;border:0;background:{{ s.bg }};cursor:pointer;padding:0"></button>
-</sc-for>
-</div>
-</div>
-</sc-for>
-<div style="padding:14px 16px;font:11px/1.5 var(--font-body);color:var(--color-neutral-600)">Load a sound onto each pad, tap steps to build a pattern, hit PLAY PATTERN. Plug in your Oxygen 25 (Settings → MIDI Devices) and its keys trigger the same pads live.</div>
-</div></div>
-</sc-if>
-
-<sc-if value="{{ isPacks }}" hint-placeholder-val="{{ false }}">
-<div style="flex:1;min-height:0;overflow:auto"><div style="padding:0 0 40px">
-
-<div style="padding:12px 16px 6px;font:700 10px var(--font-heading);letter-spacing:.14em">1 · SPLIT A SONG</div>
-<div style="padding:0 16px 10px;font:11px/1.5 var(--font-body);color:var(--color-neutral-600)">Pick a file already in your SONGS library and tap QUICK or FULL. ScrewShop processes the audio on this computer. Keep it running. The first split downloads the model; your audio stays local.</div>
-<sc-if value="{{ hasLibrary }}" hint-placeholder-val="{{ false }}">
-<sc-for list="{{ library }}" as="f" hint-placeholder-count="3">
-<div style="padding:10px 16px;border-bottom:1px solid var(--color-neutral-300)">
-<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-<div style="font:700 13px var(--font-heading);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">{{ f.name }}</div>
-<div style="flex:none;display:flex;gap:6px">
-<button onClick="{{ f.onQuickSplit }}" style="padding:8px 10px;border:1px solid var(--color-divider);background:transparent;color:var(--color-text);font:800 9px var(--font-heading);letter-spacing:.08em;cursor:pointer">QUICK SPLIT</button>
-<button onClick="{{ f.onFullSplit }}" style="padding:8px 10px;border:1px solid var(--color-divider);background:transparent;color:var(--color-accent-700);font:800 9px var(--font-heading);letter-spacing:.08em;cursor:pointer">FULL SPLIT</button>
-</div>
-</div>
-<sc-if value="{{ f.jobStatusLabel }}" hint-placeholder-val="{{ false }}">
-<div style="margin-top:6px;font:11px var(--font-body);color:{{ f.jobStatusColor }}">{{ f.jobStatusLabel }}</div>
-</sc-if>
-</div>
-</sc-for>
-</sc-if>
-<sc-if value="{{ noLibrary }}" hint-placeholder-val="{{ true }}">
-<div style="padding:0 16px 16px;font:11px/1.5 var(--font-body);color:var(--color-neutral-600)">No songs yet — upload one in the SONGS tab first.</div>
-</sc-if>
-
-<div style="padding:14px 16px 6px;font:700 10px var(--font-heading);letter-spacing:.14em;border-top:2px solid var(--color-divider)">2 · YOUR SOUND PACKS</div>
-<div style="padding:0 16px 10px;font:11px/1.5 var(--font-body);color:var(--color-neutral-600)">Save individual WAVs, reuse an instrumental as a separate track, or download a full pack for your DAW. Full splits also save automatically under Beats / sound packs.</div>
-<sc-for list="{{ packExports }}" as="pack" hint-placeholder-count="0">
-<div class="pack-export-card"><div><strong>{{ pack.name }}</strong><small>Full breakdown · 7 aligned WAVs · DAW-ready ZIP</small></div><button class="pack-export-button" onClick="{{ pack.onSave }}">SAVE SOUND PACK ZIP</button></div>
-</sc-for>
-<sc-if value="{{ hasAllStems }}" hint-placeholder-val="{{ false }}">
-<sc-for list="{{ allStemsList }}" as="st" hint-placeholder-count="4">
-<div data-stem-kind="{{ st.kind }}" style="padding:10px 16px;border-bottom:1px solid var(--color-neutral-300)">
-<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
-<div style="font:800 12px var(--font-heading);letter-spacing:.04em">{{ st.label }}</div>
-<button onClick="{{ st.onPlay }}" style="flex:none;padding:5px 10px;border:1px solid var(--color-divider);background:transparent;color:var(--color-text);font:700 9px var(--font-heading);cursor:pointer">▶ PLAY</button>
-</div>
-<div class="stem-actions"><button onClick="{{ st.onSave }}">SAVE WAV</button><button class="reuse-track" onClick="{{ st.onReuse }}" title="Add an independent copy to SONGS without changing your existing lyrics">USE AS NEW TRACK</button></div>
-<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">
-<span style="font:700 8px var(--font-heading);letter-spacing:.08em;color:var(--color-neutral-600);margin-right:2px">PAD</span>
-<sc-for list="{{ st.padButtons }}" as="pb" hint-placeholder-count="8">
-<button onClick="{{ pb.onAssign }}" style="flex:none;width:26px;height:26px;border:1px solid var(--color-divider);background:transparent;color:var(--color-neutral-600);font:800 10px var(--font-heading);cursor:pointer;padding:0">{{ pb.num }}</button>
-</sc-for>
-</div>
-</div>
-</sc-for>
-</sc-if>
-<sc-if value="{{ noAllStems }}" hint-placeholder-val="{{ true }}">
-<div style="padding:0 16px;font:11px/1.5 var(--font-body);color:var(--color-neutral-600)">Nothing split yet. Tap QUICK or FULL SPLIT above — make sure the background helper (see README) is running on your computer.</div>
-</sc-if>
-
-</div></div>
-</sc-if>
+<sc-if value="{{ isPacks }}" hint-placeholder-val="{{ false }}"><div id="ss-sampler" aria-label="M-Audio / Sampler"></div></sc-if>
 
 <sc-if value="{{ isSongs }}" hint-placeholder-val="{{ false }}">
 <div style="flex:1;min-height:0;overflow:auto"><div style="padding:0 0 120px">
@@ -298,7 +178,7 @@ button:focus-visible,input:focus-visible{outline:2px solid #e2c6ff;outline-offse
 </sc-for>
 </sc-if>
 <sc-if value="{{ noLibrary }}" hint-placeholder-val="{{ true }}">
-<div style="padding:16px;font:11px/1.5 var(--font-body);color:var(--color-neutral-600)">Nothing here yet — upload an MP3 or WAV to build your project folder. From here you can set a file as your beat, load it onto a SCREW deck, or split it into sound packs in PACKS.</div>
+<div style="padding:16px;font:11px/1.5 var(--font-body);color:var(--color-neutral-600)">Nothing here yet — upload an MP3 or WAV to build your project folder. From here you can set a file as your beat, load it onto a SCREW deck, or split it into sound packs in M-Audio / Sampler.</div>
 </sc-if>
 </div></div>
 </sc-if>
@@ -548,6 +428,8 @@ class Component extends DCLogic {
   componentWillUnmount() {
     this._unmounted = true;
     this.studio?.dispose();
+    this.notepad?.dispose();
+    this.workspace?.dispose();
     Object.values(this._jobTimers || {}).forEach(clearTimeout);
     window.removeEventListener("screwshop-status", this._statusListener);
     clearInterval(this._t);
@@ -568,6 +450,8 @@ class Component extends DCLogic {
     this._statusListener = (event) => this.setState({ notice: event.detail });
     window.addEventListener("screwshop-status", this._statusListener);
     this.studio = new window.RecordingStudio(this);
+    this.notepad = new window.ScrewShopNotepad(this);
+    this.workspace = new window.StudioWorkspace(this);
     this.connectLocal();
     if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("/sw.js").catch(() => {});
   }
@@ -581,6 +465,7 @@ class Component extends DCLogic {
       this.setState({ session: { user: { id: "local" } }, authError: "", saveStatus: "LOCAL" });
       await this.loadCloud();
       await this.studio.load();
+      await this.workspace.load();
       const { data: preferences } = await this.sb.from("settings").select("*").eq("id", "studio").maybeSingle();
       if (preferences) this.setState({ sequencerSteps: preferences.steps || this.state.sequencerSteps, seqBpm: preferences.bpm || 90 });
     } catch (error) { this.setState({ authError: error.message, saveStatus: "OFFLINE" }); }
@@ -721,7 +606,7 @@ class Component extends DCLogic {
 
   fmtTime = (s) => { s = Math.floor(s || 0); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
 
-  openHelp = () => this.setState({ helpOpen: true, helpStep: 0, settings: false, ammo: false });
+  openHelp = () => { this.setState({ helpOpen: true, helpStep: 0, settings: false, ammo: false }); };
   closeHelp = () => this.setState({ helpOpen: false });
   nextHelp = () => {
     if (this.state.helpStep >= this.HELP_STEPS.length - 1) { this.closeHelp(); return; }
@@ -855,7 +740,7 @@ class Component extends DCLogic {
     try {
       const access = await navigator.requestMIDIAccess();
       this._midiAccess = access;
-      access.onstatechange = () => { this.refreshMidi(); this.attachMidiListeners(); };
+      access.onstatechange = () => { this.workspace?.panic(); this.refreshMidi(); this.attachMidiListeners(); };
       this.setState({ midiSupported: true });
       this.refreshMidi();
       this.attachMidiListeners();
@@ -866,7 +751,7 @@ class Component extends DCLogic {
 
   refreshMidi = () => {
     if (!this._midiAccess) return;
-    const names = Array.from(this._midiAccess.inputs.values()).map(i => i.name);
+    const names = Array.from(this._midiAccess.inputs.values()).filter(i => i.state !== "disconnected").map(i => i.name);
     this.setState({ midiDevices: names });
   };
 
@@ -874,11 +759,7 @@ class Component extends DCLogic {
     if (!this._midiAccess) return;
     this._midiAccess.inputs.forEach((input) => {
       input.onmidimessage = (msg) => {
-        const [status, note, velocity] = msg.data;
-        if ((status & 0xf0) === 0x90 && velocity > 0) {
-          const padIndex = note - 36;
-          if (padIndex >= 0 && padIndex < 8) this.triggerPad(padIndex);
-        }
+        this.workspace?.midi(msg.data);
       };
     });
   };
@@ -961,6 +842,7 @@ class Component extends DCLogic {
   };
 
   triggerPad = (i, time) => {
+    if (this.workspace) { this.workspace.triggerPad(i, time); return; }
     const buf = this._pads[i];
     if (!buf) return;
     if (this._Tone) {
@@ -1512,12 +1394,12 @@ class Component extends DCLogic {
 
   HELP_STEPS = [
     { title: "Welcome to ScrewShop", body: "A rap writing studio: write bars with live rhyme highlighting, load a beat, chop and screw records, record vocal takes, and build beats on a sampler with your MIDI keyboard. Everything you make is saved on your computer and follows you between your phone and computer. Tap NEXT to walk through each tab." },
-    { title: "SONGS — your project folder", body: "Upload any MP3 or WAV here. Each file gets its own row you can rename, and buttons to SET AS BEAT (loads it into the transport bar) or send it to a SCREW deck. To split a song into instruments, head to the PACKS tab." },
-    { title: "WRITE — bars and rhymes", body: "Type your bars. Words that rhyme light up in matching colors automatically. Tap any colored word to see more rhymes, same-syllable swaps, and full phrases you can drop in. The syllable count on the right flags bars that run long. Everything autosaves as you type." },
+    { title: "SONGS — your project folder", body: "Upload any MP3 or WAV here. Each file gets its own row you can rename, and buttons to SET AS BEAT (loads it into the transport bar) or send it to a SCREW deck. To split a song into instruments, head to M-Audio / Sampler." },
+    { title: "NOTEPAD — your verse book", body: "Write freely on the ruled page. Return starts a bar; arrow keys move normally. Matching rhyme sounds are highlighted. Open the word desk for rhymes, a thesaurus, wordplay and optional tips. Everything autosaves locally as you type." },
     { title: "STUDIO — multitrack, GarageBand style", body: "Tracks stack down the page with a bar-and-beat ruler on top. IMPORT AUDIO puts your beat on Track 1. Open LOOPS & FILES and drag songs, split stems or sound-pack pieces onto a track (or the empty lane for a new track). Drag clips to move them; they snap to the beat. Drag a clip's right edge past its end to loop it. Drag along the top of the ruler to set a yellow CYCLE region that repeats. CLICK turns on the metronome, COUNT-IN gives you one bar before recording, and RECORD adds a new vocal track at the playhead. Wear headphones. Everything saves on your computer." },
     { title: "SCREW — chop and screw", body: "Two turntables and a mixer. Each deck has a clock: where you are, time left, and song length. Load a song on each, drag SCREW SPEED to slow it down (pitch drops with it, the authentic way), flip on SYRUP for reverb, and click the waveform twice to set a loop, then hit CHOP to ride it. PLAY BOTH / PAUSE BOTH / STOP BOTH run both decks together, MATCH B → A lines deck B up with A, and NUDGE pushes B behind or ahead. Want it step by step? Tap LEARN TO MIX WITH TRILL below." },
-    { title: "BEATS — pads, sequencer, and your MIDI keyboard", body: "Load a sound onto any of the 8 pads and tap to play it, or plug in a MIDI keyboard (like an M-Audio Oxygen 25) — grant access in Settings, and its keys trigger the pads live. Tap steps in the 16-step grid under each pad to build a loop, then hit PLAY PATTERN." },
-    { title: "PACKS — split a song into sound packs", body: "Pick any song from SONGS and tap QUICK SPLIT (vocals + instrumental, fast) or FULL SPLIT (vocals, drums, bass, guitar, piano, other, plus a mixed instrumental). The local ScrewShop processor picks up the job automatically. Keep the computer running; audio and stems stay on disk. Everything you've split shows up below with a PLAY button and pad numbers — tap a number to load that piece straight onto a BEATS pad, saved on disk for next time." },
+    { title: "M-Audio / Sampler", body: "Browse saved sounds, preview them, and drag onto 16 pads or keys. On touch, select a sound then tap a destination. Drum mode maps different samples; the two Instrument modes repitch a sample across keys. MIDI Learn saves your actual controls. Record captures editable notes into the sequencer; use Edit notes for velocity and duration. Save Kit and Save Beat keep the project playable." },
+    { title: "Sampler to Studio", body: "The sampler sound browser includes Quick and Full split, packs, stems, chops and saved beats. Send to Studio renders WAV internally and adds clips without exporting and reimporting. Changes stay editable in the sampler; Update Studio render explicitly refreshes existing clips while preserving arrangement. Studio records vocals on separate tracks and exports the finished WAV or MP3 mix." },
     { title: "Settings & MIDI", body: "The gear icon has rhyme sensitivity, display toggles, a MIDI DEVICES panel (shows your keyboard once it's plugged in and Chrome grants access), and local studio settings. That's the whole app — tap the Trill GUIDE portrait anytime to come back here." },
   ];
 
@@ -1558,8 +1440,8 @@ class Component extends DCLogic {
   renderVals() {
     const S = this.state, fams = this.families(), self = this, E = this.E;
     const efam = E ? E.rhymeFamilies(S.lines.map(l => String(l).trim()), this.sens) : null;
-    const tabs = ["SONGS", "WRITE", "STUDIO", "SCREW", "BEATS", "PACKS"].map(n => {
-      const id = n.toLowerCase(), on = S.tab === id;
+    const tabs = ["SONGS", "NOTEPAD", "STUDIO", "SCREW", "M-AUDIO / SAMPLER"].map(n => {
+      const id = n === "NOTEPAD" ? "write" : n === "M-AUDIO / SAMPLER" ? "packs" : n.toLowerCase(), on = S.tab === id;
       return { name: n, mark: on ? "var(--color-accent)" : "transparent", fg: on ? "var(--color-text)" : "var(--color-neutral-600)", onTap: () => { this.setState({ tab: id, word: null, edit: -1, ammo: false }); if(id === "studio" && !this.state.beatPlaying && !this.state.deckA.playing && !this.state.deckB.playing) this.setState({transportSource:"studio",transportTitle:"STUDIO · Multitrack session"}); } };
     });
     const bars = S.lines.map((line, li) => {
@@ -1704,8 +1586,8 @@ class Component extends DCLogic {
       name: n, bg: S.beatMode === n ? "var(--color-text)" : "transparent", fg: S.beatMode === n ? "var(--color-bg)" : "var(--color-text)",
       onTap: () => this.setState({ beatMode: n })
     }));
-    const crumbs = { songs: "SCREWSHOP", write: "VERSE 1 · 82 BPM", studio: "MULTITRACK RECORDING", screw: "CHOP & SCREW", beats: "BEAT MAKER", packs: "SOUND PACK MAKER" };
-    const heads = { songs: "SONGS", write: "SCREWSHOP SESSION", studio: "STUDIO", screw: "SCREW", beats: "BEATS", packs: "PACKS" };
+    const crumbs = { songs: "SCREWSHOP", write: "VERSE 1 · 82 BPM", studio: "MULTITRACK RECORDING", screw: "CHOP & SCREW", beats: "BEAT MAKER", packs: "SOUNDS · PADS · PATTERNS" };
+    const heads = { songs: "SONGS", write: "NOTEPAD", studio: "STUDIO", screw: "SCREW", beats: "BEATS", packs: "M-AUDIO / SAMPLER" };
     const allStemsList = S.allStems.map(st => ({
       ...st,
       label: (st.trackName || "Track") + " · " + st.kind.toUpperCase(),
@@ -1937,8 +1819,8 @@ class Component extends DCLogic {
       recToggle: () => this.studio.record(),
       rec: S.rec,
       studioImport: () => this.studio.importBeat(),
-      studioSources: () => this.setState({studioShowSources:!S.studioShowSources}),
-      studioShowSources: !!S.studioShowSources,
+      studioSources: () => this.setState({studioShowSources:S.studioShowSources === false}),
+      studioShowSources: S.studioShowSources !== false,
       studioLoopsClass: S.studioShowSources ? "on" : "",
       studioBusy: !!this.studio?.busy,
       studioPending: !!this.studio?.pending,
@@ -1958,6 +1840,14 @@ class Component extends DCLogic {
       studioCountClass: this.studio?.countIn ? "on" : "",
       studioZoomIn: () => this.studio.setZoom(1),
       studioZoomOut: () => this.studio.setZoom(-1),
+      studioSplit: () => this.studio.splitClipAtPlayhead(this.studio.selected),
+      studioDeleteRegion: () => this.studio.deleteClip(this.studio.selected),
+      studioUndo: () => this.studio.undo(),
+      studioRedo: () => this.studio.undo(true),
+      studioOxygenOpen: !!S.oxygenOpen,
+      studioOxygen: () => this.setState({tab:"packs"}),
+      studioExportMix: () => this.workspace.run(() => this.workspace.exportStudio()),
+      studioHasMp3: !!S.samplerMp3, studioExportMp3: () => this.workspace.run(() => this.workspace.exportStudio("mp3")),
       studioAddTrack: () => this.studio.addTrack(),
       studioHint: S.rec ? "Recording a new vocal track… hit STOP to save it. Everything else keeps playing underneath." : "Drag clips to move them (they snap to the beat; hold Alt for free). Drag a clip's right edge past its end to loop it. Drag along the top of the ruler to set the cycle region. Click the ruler to move the playhead. RECORD adds a new vocal track at the playhead — wear headphones. Changing TEMPO moves the grid, not your audio.",
       studioStemsList: S.allStems.filter(f=>f.url).map(f=>{const name=f.trackName+" · "+f.kind;return {name,url:f.url,addLabel:"Add "+name+" on a new track",add:()=>this.studio.addClip(null,{name,url:f.url},this.studio.cursor)};}),

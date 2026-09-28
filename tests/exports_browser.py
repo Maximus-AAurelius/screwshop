@@ -1,3 +1,6 @@
+"""Historical PACKS layout regression. Current exports are covered by sampler_browser.py
+and test_exports.py; this script is retained as reference for the retired interface.
+"""
 import json
 import os
 import sys

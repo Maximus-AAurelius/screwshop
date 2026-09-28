@@ -23,9 +23,10 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from local_store import Store, USER_ID
 from local_devices import Devices
+from sound_library import index_split, save_library_pack
 from local_tls import local_addresses
 import local_tailscale
-from studio_exports import save_stem, save_pack, reuse_stem, safe_export_path
+from studio_exports import save_stem, save_pack, reuse_stem, safe_export_path, save_mp3, mp3_available
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "docs"
@@ -77,6 +78,7 @@ def separate(store, job):
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(output / (name + ".wav"), dest)
             store.query({"table": "stems", "action": "upsert", "values": {"beat_id": job["beat_id"], "kind": kind, "storage_path": relative}})
+        index_split(store, job)
         if job["mode"] == "full":
             save_pack(store, job=job)
 
@@ -106,7 +108,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://api.datamuse.com; font-src 'self' data:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'")
         super().end_headers()
 
     def json(self, body, code=200):
@@ -219,12 +221,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json({"error": {"message": "Pair this phone with the computer first"}}, 401)
             if path == "/api/export":
                 req = json.loads(self.read_body(4096))
-                if req.get("kind") == "stem":
+                if req.get("kind") == "library-pack":
+                    result = save_library_pack(self.server.store, req.get("folder_id"), req.get("name"))
+                elif req.get("kind") == "stem":
                     result = save_stem(self.server.store, req.get("stem_id"))
                 elif req.get("kind") == "pack":
                     result = save_pack(self.server.store, beat_id=req.get("beat_id"))
                 elif req.get("kind") == "reuse":
                     result = reuse_stem(self.server.store, req.get("stem_id"))
+                elif req.get("kind") == "mp3":
+                    result = save_mp3(self.server.store, req.get("storage_path"), req.get("name", "ScrewShop mix"))
                 else:
                     raise ValueError("Choose a WAV, full sound pack, or library copy")
                 return self.json({"data": result, "error": None})
@@ -283,7 +289,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.file(self.server.store.root / "tls/ScrewShop.mobileconfig")
         if path == "/api/status":
             paired = self.authenticated()
-            return self.json({"project": "ScrewShop", "paired": paired, "local": self.is_local(), "secure": self.is_secure() or self.is_local(), "storage": "local", "worker": capabilities() if paired else None})
+            return self.json({"project": "ScrewShop", "paired": paired, "local": self.is_local(), "secure": self.is_secure() or self.is_local(), "storage": "local", "worker": capabilities() if paired else None, "export_formats": (["wav", "mp3"] if mp3_available() else ["wav"]) if paired else []})
         if not self.is_local() and not self.is_secure():
             # Plain Wi-Fi HTTP only hands out the iPhone certificate profile; everything else moves to HTTPS.
             return self.https_redirect()

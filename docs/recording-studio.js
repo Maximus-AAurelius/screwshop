@@ -1,6 +1,6 @@
 /* ScrewShop STUDIO — a GarageBand-style multitrack session on one Web Audio clock.
    Tracks hold clips. A clip plays its audio from `start` (session seconds) for
-   `length` seconds; a length longer than the audio repeats it (a loop).
+   `length` seconds, beginning at `sourceOffset` in the audio file; a length longer than the audio repeats it (a loop).
    The arrange area (ruler, track headers, lanes, clips) is drawn straight into
    #gb-arrange by this file, so dragging stays smooth and never re-renders the app. */
 window.RecordingStudio = class RecordingStudio {
@@ -10,12 +10,15 @@ window.RecordingStudio = class RecordingStudio {
     this.bpm = 82; this.cycle = { on: false, start: 0, end: 0 }; this.metronome = false; this.countIn = true;
     this.zoom = 26; // pixels per beat
     this.selected = null; this.drag = null; this.dirty = true;
+    this.clipboard = null; this.trackMenu = null; this.splitPoint = null; this.undoStack = []; this.redoStack = [];
     this.timer = setInterval(() => this.tick(), 50);
     this.onPointerDown = (e) => this.pointerDown(e);
     this.onKey = (e) => this.key(e);
     this.onDragStart = (e) => this.loopDragStart(e);
+    this.onMenuClick = (e) => { if (this.trackMenu && !this.trackMenu.contains(e.target)) this.hideTrackMenu(); };
     document.addEventListener('keydown', this.onKey);
     document.addEventListener('dragstart', this.onDragStart);
+    document.addEventListener('click', this.onMenuClick);
     this.onResize = () => { this.dirty = true; };
     window.addEventListener('resize', this.onResize);
   }
@@ -35,6 +38,11 @@ window.RecordingStudio = class RecordingStudio {
   pps() { return this.zoom / this.beat(); } // pixels per session second
   snap(sec, free) { if (free) return Math.max(0, sec); const b = this.beat(); return Math.max(0, Math.round(sec / b) * b); }
   snapBar(sec) { const b = this.bar(); return Math.max(0, Math.round(sec / b) * b); }
+  snapCycle(sec, free) {
+    if (free) return Math.max(0, sec);
+    const step = Math.max(0.015, this.beat() / 48);
+    return Math.max(0, Math.round(sec / step) * step);
+  }
   allClips() { return this.tracks.flatMap(t => t.clips.map(c => ({ track: t, clip: c }))); }
   findClip(id) { return this.allClips().find(x => x.clip.id === id); }
   clipLen(c) { return c.length != null ? c.length : (this.buffers.get(c.url)?.duration || c.dur || 0); }
@@ -72,7 +80,7 @@ window.RecordingStudio = class RecordingStudio {
 
   save() {
     const tracks = this.tracks.map(t => ({ ...t, clips: t.clips.map(({ loadError, ...c }) => c) }));
-    const body = { id: 'recording-session', version: 2, tracks, bpm: this.bpm, cycle: this.cycle, metronome: this.metronome, countIn: this.countIn, zoom: this.zoom };
+    const body = { id: 'recording-session', version: 3, tracks, bpm: this.bpm, cycle: this.cycle, metronome: this.metronome, countIn: this.countIn, zoom: this.zoom };
     this.saving = (this.saving || Promise.resolve()).catch(() => {}).then(() => this.checked(this.app.sb.from('settings').upsert(body))).catch(e => { this.notify('Session not saved: ' + e.message); throw e; });
     this.saving.catch(() => {});
     return this.saving;
@@ -127,7 +135,7 @@ window.RecordingStudio = class RecordingStudio {
         const segStart = Math.max(from, clip.start), segEnd = Math.min(to, clip.start + L);
         let t = segStart, guard = 0;
         while (t < segEnd - 1e-4 && guard++ < 4000) {
-          const local = (t - clip.start) % D, chunk = Math.min(D - local, segEnd - t);
+          const local = ((clip.sourceOffset || 0) + t - clip.start) % D, chunk = Math.min(D - local, segEnd - t);
           if (chunk > 1e-4) {
             const source = ctx.createBufferSource(); source.buffer = buffer; source.playbackRate.value = this.rate;
             source.connect(gain); source.start(at + (t - from) / this.rate, local, chunk);
@@ -215,10 +223,107 @@ window.RecordingStudio = class RecordingStudio {
       } else this.cycle.on = !this.cycle.on;
     }); this.save();
   }
+  hideTrackMenu() {
+    if (this.trackMenu) { this.trackMenu.remove(); this.trackMenu = null; }
+  }
+  showTrackMenu(trackId, clipId, x = 0, y = 0) {
+    this.hideTrackMenu();
+    const track = this.tracks.find(t => t.id === trackId);
+    const found = clipId ? this.findClip(clipId) : null;
+    const clip = found?.clip || null;
+    const menu = document.createElement('div');
+    menu.id = 'gb-track-menu';
+    menu.className = 'gb-track-menu';
+    const actions = [
+      ['Split at playhead', () => this.splitClipAtPlayhead(clipId || found?.clip?.id || this.selected || track?.clips?.[0]?.id)],
+      ['Split to new track', () => this.splitClipToNewTrack(clipId || found?.clip?.id || this.selected || track?.clips?.[0]?.id)],
+      ['Duplicate', () => this.duplicateClip(clipId || found?.clip?.id || this.selected || track?.clips?.[0]?.id)],
+      ['Copy', () => this.copyClip(clipId || found?.clip?.id || this.selected || track?.clips?.[0]?.id)],
+      ['Paste', () => this.pasteClip(trackId, this.cursor)],
+      [track?.locked ? 'Unlock track' : 'Lock track', () => this.toggleTrackLock(trackId)],
+      ['Delete', () => clipId ? this.deleteClip(clipId) : this.deleteTrack(trackId)],
+      ['Mute', () => track && this.change(track.id, { muted: !track.muted })],
+      ['Solo', () => track && this.change(track.id, { solo: !track.solo })],
+    ].filter(([, fn]) => typeof fn === 'function');
+    menu.innerHTML = actions.map(([label]) => '<button type="button" data-track-action="' + label + '">' + label + '</button>').join('');
+    actions.forEach(([label, fn]) => {
+      const btn = Array.from(menu.querySelectorAll('button')).find(b => b.dataset.trackAction === label);
+      if (btn) btn.addEventListener('click', () => { fn(); this.hideTrackMenu(); });
+    });
+    Object.assign(menu.style, { position: 'fixed', left: x + 'px', top: y + 'px', zIndex: '99' });
+    document.body.appendChild(menu);
+    this.trackMenu = menu;
+    const bounds = menu.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8)) + 'px';
+    menu.style.top = Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8)) + 'px';
+  }
+  toggleTrackLock(trackId) {
+    const track = this.tracks.find(t => t.id === trackId); if (!track) return;
+    track.locked = !track.locked; this.save(); this.refresh();
+  }
+  copyClip(clipId) {
+    const found = this.findClip(clipId); if (!found) return;
+    this.clipboard = { type: 'clip', clip: { ...found.clip, id: this.newId(), start: found.clip.start }, fromTrack: found.track.id, name: found.clip.name + ' copy' };
+    this.notify('Clip copied to the clipboard.');
+  }
+  pasteClip(targetTrackId, at = this.cursor) {
+    if (!this.clipboard || this.clipboard.type !== 'clip') { this.notify('Nothing to paste yet.'); return; }
+    const source = this.clipboard.clip; const targetTrack = this.tracks.find(t => t.id === targetTrackId) || this.tracks[0]; if (!this.editable(targetTrack)) return; this.checkpoint();
+    const pasted = { ...source, id: this.newId(), start: this.snap(at), name: source.name || 'Clip' };
+    this.restartIfPlaying(() => { targetTrack.clips.push(pasted); });
+    this.selected = pasted.id; this.save(); this.refresh();
+  }
+  checkpoint() {
+    this.undoStack.push(JSON.stringify(this.tracks));
+    if (this.undoStack.length > 60) this.undoStack.shift();
+    this.redoStack = [];
+  }
+  undo(redo = false) {
+    if (this.recording || this.busy) return;
+    const from = redo ? this.redoStack : this.undoStack, to = redo ? this.undoStack : this.redoStack;
+    if (!from.length) return;
+    to.push(JSON.stringify(this.tracks));
+    this.restartIfPlaying(() => { this.tracks = JSON.parse(from.pop()); });
+    this.selected = null; this.splitPoint = null; this.hideTrackMenu(); this.save(); this.refresh();
+  }
+  editable(track) {
+    if (this.recording || this.busy) return false;
+    if (track?.locked) { this.notify('Unlock this track before editing its regions.'); return false; }
+    return !!track;
+  }
+  prepareSplit(clipId, time) {
+    const found = this.findClip(clipId); if (!found || !this.editable(found.track)) return;
+    if (this.playing) this.halt();
+    this.selected = clipId; this.cursor = time;
+    this.splitPoint = { clipId, time }; this.refresh();
+  }
+  splitClipAtPlayhead(clipId, newTrack = false) {
+    const found = this.findClip(clipId); if (!found || !this.editable(found.track)) return;
+    const clip = found.clip, time = this.splitPoint?.clipId === clipId ? this.splitPoint.time : this.position();
+    const split = time - clip.start, length = this.clipLen(clip);
+    if (split < 0.001 || length - split < 0.001) { this.notify('Place the scissors inside the region to split it.'); return; }
+    const left = { ...clip, id: this.newId(), length: split };
+    const right = { ...clip, id: this.newId(), start: clip.start + split, length: length - split,
+      sourceOffset: (clip.sourceOffset || 0) + split };
+    this.checkpoint();
+    this.restartIfPlaying(() => {
+      const index = found.track.clips.indexOf(clip);
+      found.track.clips.splice(index, 1, left, ...(newTrack ? [] : [right]));
+      if (newTrack) this.tracks.push({ ...found.track, id: this.newId(), name: found.track.name + ' Split', clips: [right] });
+    });
+    this.selected = right.id; this.splitPoint = null; this.hideTrackMenu(); this.save(); this.refresh();
+  }
+  splitClipToNewTrack(clipId) { this.splitClipAtPlayhead(clipId, true); }
   toggleMetronome() { this.restartIfPlaying(() => { this.metronome = !this.metronome; }); this.save(); }
   toggleCountIn() { this.countIn = !this.countIn; this.save(); this.refresh(); }
-  setZoom(dir) { this.zoom = Math.max(8, Math.min(90, Math.round(this.zoom * (dir > 0 ? 1.35 : 1 / 1.35)))); this.save(); this.refresh(); }
-  palette(i) { return ['#b98af2', '#63d6b2', '#f5a35c', '#6fb5ff', '#f27ab0', '#e8d45c', '#8fd16a', '#ff8a7a'][i % 8]; }
+  setZoom(dir) { this.zoom = Math.max(8, Math.min(1200, Math.round(this.zoom * (dir > 0 ? 1.35 : 1 / 1.35)))); this.save(); this.refresh(); }
+  trackColor(t, i) {
+    if (t.id === 'beat' || /beat|drum|instrumental/i.test(t.name)) return '#66bb78';
+    if (/vocal|take|voice/i.test(t.name) || t.clips.some(c => c.url?.includes('/takes/'))) return '#62afe9';
+    if (/ad.?lib/i.test(t.name)) return '#e9b457';
+    return this.palette(i);
+  }
+  palette(i) { return ['#62afe9', '#e9b457', '#b98af2', '#63d6b2', '#f27ab0', '#e8d45c', '#8fd16a', '#ff8a7a'][i % 8]; }
   addTrack(name) {
     const n = this.tracks.length + 1;
     const track = { id: this.newId(), name: name || 'Track ' + n, volume: 0.8, muted: false, solo: false, clips: [] };
@@ -242,7 +347,7 @@ window.RecordingStudio = class RecordingStudio {
     this.selected = clip.id; this.save(); this.refresh();
   }
   moveClip(clipId, trackId, start) {
-    const found = this.findClip(clipId); if (!found) return;
+    const found = this.findClip(clipId); if (!found || !this.editable(found.track)) return; this.checkpoint();
     this.restartIfPlaying(() => {
       found.clip.start = Math.max(0, start);
       let dest = this.tracks.find(t => t.id === trackId);
@@ -251,16 +356,16 @@ window.RecordingStudio = class RecordingStudio {
     }); this.save();
   }
   setClipLength(clipId, len) {
-    const found = this.findClip(clipId); if (!found) return;
+    const found = this.findClip(clipId); if (!found || !this.editable(found.track)) return; this.checkpoint();
     this.restartIfPlaying(() => { found.clip.length = Math.max(this.beat() / 4, len); }); this.save();
   }
   deleteClip(clipId) {
-    const found = this.findClip(clipId); if (!found || this.recording) return;
+    const found = this.findClip(clipId); if (!found || !this.editable(found.track)) return; this.checkpoint();
     this.restartIfPlaying(() => { found.track.clips = found.track.clips.filter(c => c !== found.clip); });
     if (this.selected === clipId) this.selected = null; this.save();
   }
   duplicateClip(clipId) {
-    const found = this.findClip(clipId); if (!found) return;
+    const found = this.findClip(clipId); if (!found || !this.editable(found.track)) return; this.checkpoint();
     const c = found.clip, copy = { ...c, id: this.newId(), start: c.start + this.clipLen(c) };
     this.restartIfPlaying(() => { found.track.clips.push(copy); }); this.selected = copy.id; this.save();
   }
@@ -297,13 +402,13 @@ window.RecordingStudio = class RecordingStudio {
   }
 
   // ---------- recording ----------
-  async record() {
+  async record(input = 'mic') {
     if (this.recording) { this.stopRecord(); return; }
     if (this.busy || !this.ready || this.pending) return;
     this.busy = true; this.refresh(); let stream;
     try {
       const ctx = this.context(); await ctx.resume();
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = input === 'midi' ? this.app.workspace.recordStream() : await navigator.mediaDevices.getUserMedia({ audio: true });
       await Promise.all(this.allClips().map(({ clip }) => this.decode(clip).catch(() => {})));
       const offset = this.position(); this.app.stopPlayback(); this.cursor = offset; this.rate = 1;
       if (this.countIn) { // one bar of clicks before the take starts
@@ -317,7 +422,7 @@ window.RecordingStudio = class RecordingStudio {
       recorder.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
-        this.pending = { blob, offset: this.captureOffset, id: this.newId(), name: 'Vocal ' + (this.tracks.filter(t => t.id !== 'beat').length + 1) };
+        this.pending = { blob, offset: this.captureOffset, id: this.newId(), name: (input === 'midi' ? 'Oxygen performance ' : 'Vocal ') + (this.tracks.filter(t => t.id !== 'beat').length + 1) };
         this.app.setState({ rec: false, secs: 0 }); this.refresh(); await this.saveRecording();
       };
       this.recorder = recorder; this.recording = true; this.recordStarted = performance.now();
@@ -344,7 +449,7 @@ window.RecordingStudio = class RecordingStudio {
       await this.decode(clip);
       await this.checked(this.app.sb.from('takes').upsert({ id: pending.id, user_id: 'local', song_id: this.app.SONG_UUID, storage_path: path, duration_secs: clip.dur, offset_secs: clip.start, label: pending.name, bar_start: 0 }));
       if (!this.tracks.some(t => t.id === pending.id)) this.tracks.push({ id: pending.id, name: pending.name, volume: 0.8, muted: false, solo: false, clips: [clip] });
-      await this.save(); this.pending = null; this.notify('Vocal saved locally on its own track.');
+      await this.save(); this.pending = null; this.notify(pending.name + ' saved locally on its own track.'); this.app.workspace?.refreshLibrary();
     } catch (e) { this.notify('Recording is still in memory. Use RETRY SAVE before closing: ' + e.message); }
     finally { this.busy = false; this.refresh(); }
   }
@@ -397,12 +502,13 @@ window.RecordingStudio = class RecordingStudio {
     html += '</div></div>';
     // tracks
     this.tracks.forEach((t, i) => {
-      const color = t.id === 'beat' ? '#b98af2' : this.palette(i + 1);
+      const color = this.trackColor(t, i);
       html += '<div class="gb-row" data-row="' + esc(t.id) + '"><div class="gb-head" style="--c:' + color + '">'
         + '<div class="gb-head-top"><span class="gb-swatch"></span><input class="gb-name" data-track-name="' + esc(t.id) + '" aria-label="Track name" value="' + esc(t.name) + '" />'
         + '<button class="gb-x" data-track-del="' + esc(t.id) + '" title="Remove track" aria-label="Remove track ' + esc(t.name) + '">×</button></div>'
         + '<div class="gb-head-ctl"><button data-track-mute="' + esc(t.id) + '" class="gb-ms' + (t.muted ? ' on' : '') + '" aria-label="Mute ' + esc(t.name) + '">M</button>'
         + '<button data-track-solo="' + esc(t.id) + '" class="gb-ms gb-solo' + (t.solo ? ' on' : '') + '" aria-label="Solo ' + esc(t.name) + '">S</button>'
+        + '<button data-track-lock="' + esc(t.id) + '" class="gb-ms gb-lock' + (t.locked ? ' on' : '') + '" aria-label="' + (t.locked ? 'Unlock ' : 'Lock ') + esc(t.name) + '">' + (t.locked ? '🔒' : '🔓') + '</button>'
         + '<input type="range" min="0" max="1" step="0.01" value="' + (t.volume ?? 0.8) + '" data-track-vol="' + esc(t.id) + '" aria-label="' + esc(t.name) + ' volume" /></div></div>'
         + '<div class="gb-lane" data-lane="' + esc(t.id) + '" style="width:' + W + 'px;--bar:' + barPx + 'px;--beatw:' + this.zoom + 'px">';
       for (const clip of t.clips) {
@@ -413,10 +519,13 @@ window.RecordingStudio = class RecordingStudio {
           + '<canvas data-clip-wave="' + esc(clip.id) + '" width="' + Math.min(4000, Math.ceil(w)) + '" height="46"></canvas>'
           + '<div class="gb-clip-loop" data-clip-loop="' + esc(clip.id) + '" title="Drag to loop (repeat) or trim"></div></div>';
       }
+      if (this.splitPoint && t.clips.some(c => c.id === this.splitPoint.clipId)) {
+        html += '<div class="gb-scissors" style="left:' + (this.splitPoint.time * pps) + 'px"><button data-split-here="' + esc(this.splitPoint.clipId) + '" aria-label="Drag scissors down to split" title="Drag down through the region to split"><span class="gb-scissors-icon">&#9986;</span></button></div>';
+      }
       html += '</div></div>';
     });
     html += '<div class="gb-row gb-new-row"><div class="gb-head gb-new-head"><button data-add-track="1">+ NEW TRACK</button><small>or drop audio / loops on the lane →</small></div><div class="gb-lane gb-new-lane" data-lane="__new" style="width:' + W + 'px"><span>Drop a loop, stem or audio file here to start a new track</span></div></div>';
-    html += '<div class="gb-playhead" style="left:' + this.headW + 'px"></div></div>';
+    html += '<div class="gb-playhead" style="left:' + this.headW + 'px"><button class="gb-playhead-handle" aria-label="Drag playhead" title="Drag to position playback or edits"></button></div></div>';
     const keepLeft = host.scrollLeft, keepTop = host.scrollTop;
     host.innerHTML = html; host.scrollLeft = keepLeft; host.scrollTop = keepTop;
     const corner = host.querySelector('.gb-corner'); if (corner?.offsetWidth) this.headW = corner.offsetWidth;
@@ -427,25 +536,47 @@ window.RecordingStudio = class RecordingStudio {
   drawClip(canvas) {
     const found = this.findClip(canvas.dataset.clipWave); if (!found) return;
     const { clip } = found, buffer = this.buffers.get(clip.url);
+    const arrange = canvas.closest('.gb-arrange'), region = canvas.parentElement;
+    const bounds = region.getBoundingClientRect(), viewport = arrange.getBoundingClientRect();
+    const offset = Math.max(0, viewport.left + this.headW - bounds.left);
+    const width = Math.max(1, Math.min(bounds.width - offset, viewport.right - Math.max(bounds.left, viewport.left + this.headW)));
+    canvas.style.marginLeft = offset + 'px'; canvas.style.width = width + 'px';
+    canvas.width = Math.ceil(width * Math.min(2, window.devicePixelRatio || 1));
     const ctx = canvas.getContext('2d'), w = canvas.width, h = canvas.height; ctx.clearRect(0, 0, w, h);
     if (!buffer) { ctx.fillStyle = '#ffffff55'; ctx.font = '11px system-ui'; ctx.fillText('loading…', 6, 26); return; }
-    const L = this.clipLen(clip), D = buffer.duration, data = buffer.getChannelData(0), perPx = L / w;
+    const L = this.clipLen(clip), D = buffer.duration, data = buffer.getChannelData(0), perPx = width / this.pps() / w, viewStart = offset / this.pps();
     ctx.fillStyle = 'rgba(15,8,24,.72)';
     for (let x = 0; x < w; x++) {
-      const t0 = (x * perPx) % D, t1 = t0 + perPx;
+      const t0 = ((clip.sourceOffset || 0) + viewStart + x * perPx) % D, t1 = t0 + perPx;
       const a = Math.floor(t0 / D * data.length), z = Math.min(data.length, Math.max(a + 1, Math.floor(t1 / D * data.length)));
       let peak = 0; for (let i = a; i < z; i += Math.max(1, Math.floor((z - a) / 60))) peak = Math.max(peak, Math.abs(data[i]));
       const bh = Math.max(1, peak * (h - 4)); ctx.fillRect(x, (h - bh) / 2, 1, bh);
     }
     if (L > D + 1e-3) { // loop notches like GarageBand
       ctx.fillStyle = 'rgba(255,255,255,.75)';
-      for (let r = D; r < L; r += D) { const x = Math.round(r / perPx); ctx.fillRect(x, 0, 1, h); ctx.beginPath(); ctx.moveTo(x - 5, 0); ctx.lineTo(x + 5, 0); ctx.lineTo(x, 6); ctx.fill(); }
+      for (let r = D - ((clip.sourceOffset || 0) % D); r < L; r += D) { if (r < viewStart || r > viewStart + width / this.pps()) continue; const x = Math.round((r - viewStart) / perPx); ctx.fillRect(x, 0, 1, h); ctx.beginPath(); ctx.moveTo(x - 5, 0); ctx.lineTo(x + 5, 0); ctx.lineTo(x, 6); ctx.fill(); }
     }
   }
 
   // ---------- interaction ----------
   wire(host) {
     host.dataset.wired = '1';
+    host.addEventListener('wheel', e => {
+      if (!e.shiftKey || this.drag || this.recording || !this.selected) return;
+      const delta = e.deltaY || e.deltaX; if (!delta) return;
+      e.preventDefault();
+      const oldPps = this.pps();
+      const x = Math.max(this.headW + 1, Math.min(host.clientWidth - 1, e.clientX - host.getBoundingClientRect().left));
+      const anchor = (host.scrollLeft + x - this.headW) / oldPps;
+      this.zoom = Math.max(8, Math.min(1200, this.zoom * (delta < 0 ? 1.18 : 1 / 1.18)));
+      this.build(host);
+      host.scrollLeft = Math.max(0, anchor * this.pps() + this.headW - x);
+      clearTimeout(this.zoomSave); this.zoomSave = setTimeout(() => this.save(), 250);
+    }, { passive: false });
+    host.addEventListener('scroll', () => {
+      if (this.waveFrame) return;
+      this.waveFrame = requestAnimationFrame(() => { this.waveFrame = null; host.querySelectorAll('canvas[data-clip-wave]').forEach(cv => this.drawClip(cv)); });
+    });
     host.addEventListener('pointerdown', this.onPointerDown);
     host.addEventListener('change', e => {
       const t = e.target;
@@ -457,31 +588,88 @@ window.RecordingStudio = class RecordingStudio {
     });
     host.addEventListener('click', e => {
       const t = e.target.closest('button'); if (!t) return;
-      if (t.dataset.trackMute) { const tr = this.tracks.find(x => x.id === t.dataset.trackMute); this.change(tr.id, { muted: !tr.muted }); }
+      if (t.dataset.splitHere) { if (e.detail === 0) this.splitClipAtPlayhead(t.dataset.splitHere); }
+      else if (t.dataset.trackMute) { const tr = this.tracks.find(x => x.id === t.dataset.trackMute); this.change(tr.id, { muted: !tr.muted }); }
       else if (t.dataset.trackSolo) { const tr = this.tracks.find(x => x.id === t.dataset.trackSolo); this.change(tr.id, { solo: !tr.solo }); }
+      else if (t.dataset.trackLock) { const tr = this.tracks.find(x => x.id === t.dataset.trackLock); if (tr) this.toggleTrackLock(tr.id); }
       else if (t.dataset.trackDel) this.deleteTrack(t.dataset.trackDel);
       else if (t.dataset.clipDel) this.deleteClip(t.dataset.clipDel);
       else if (t.dataset.clipDup) this.duplicateClip(t.dataset.clipDup);
       else if (t.dataset.addTrack) this.addTrack();
+    });
+    host.addEventListener('dblclick', e => {
+      if (e.target.closest('button,input')) return;
+      const clip = e.target.closest('[data-clip]');
+      const lane = e.target.closest('[data-lane]');
+      const trackHead = e.target.closest('.gb-head');
+      if (clip) {
+        this.prepareSplit(clip.dataset.clip, this.laneTime(lane, e.clientX));
+        const found = this.findClip(clip.dataset.clip);
+        if (found) this.showTrackMenu(found.track.id, found.clip.id, e.clientX + 32, e.clientY + 12);
+      } else if (trackHead) {
+        const id = trackHead.querySelector('[data-track-name]')?.dataset?.trackName || lane?.dataset?.lane;
+        if (id) this.showTrackMenu(id, null, e.clientX, e.clientY);
+      }
     });
     host.addEventListener('dragover', e => { const lane = e.target.closest('[data-lane]'); if (lane) { e.preventDefault(); host.querySelectorAll('.drop-hover').forEach(el => el.classList.remove('drop-hover')); lane.classList.add('drop-hover'); } });
     host.addEventListener('dragleave', e => { if (!host.contains(e.relatedTarget)) host.querySelectorAll('.drop-hover').forEach(el => el.classList.remove('drop-hover')); });
     host.addEventListener('drop', e => this.drop(e, host));
   }
   laneTime(lane, clientX) { const r = lane.getBoundingClientRect(); return (clientX - r.left) / this.pps(); }
+  markerDrag(e) {
+    const scissors = e.target.closest('[data-split-here]'), handle = e.target.closest('.gb-playhead-handle');
+    if (!scissors && !handle) return false;
+    if (e.button !== 0 || this.recording || this.busy) return true;
+    e.preventDefault(); this.hideTrackMenu();
+    const host = e.currentTarget, resume = this.playing;
+    this.drag = {}; // Keep the DOM stable throughout the gesture.
+    if (resume) this.halt();
+    const initial = this.cursor, point = this.splitPoint && { ...this.splitPoint };
+    let distance = 0;
+    const update = ev => {
+      if (scissors) {
+        distance = Math.max(0, Math.min(68, ev.clientY - e.clientY));
+        scissors.style.transform = 'translateY(' + distance + 'px)';
+      } else {
+        this.cursor = Math.max(0, Math.min(this.duration(), this.laneTime(host.querySelector('.gb-ruler'), ev.clientX)));
+        if (this.splitPoint) {
+          this.splitPoint.time = this.cursor;
+          const marker = host.querySelector('.gb-scissors');
+          if (marker) marker.style.left = this.cursor * this.pps() + 'px';
+        }
+        host.querySelector('.gb-playhead').style.transform = 'translateX(' + this.cursor * this.pps() + 'px)';
+      }
+    };
+    const finish = ev => {
+      window.removeEventListener('pointermove', update); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', finish);
+      const cancelled = ev.type === 'pointercancel';
+      if (!cancelled) update(ev);
+      this.drag = null;
+      if (cancelled) { this.cursor = initial; this.splitPoint = point; }
+      if (scissors && !cancelled && distance >= 48) this.splitClipAtPlayhead(scissors.dataset.splitHere);
+      this.refresh();
+      if (resume) this.play().catch(() => {});
+    };
+    window.addEventListener('pointermove', update); window.addEventListener('pointerup', finish); window.addEventListener('pointercancel', finish);
+    return true;
+  }
   pointerDown(e) {
+    if (this.markerDrag(e)) return;
     if (e.button !== 0 || e.target.closest('button,input')) return;
+    this.splitPoint = null; e.currentTarget.querySelectorAll('.gb-scissors').forEach(el => el.remove());
     const host = e.currentTarget, loop = e.target.closest('[data-clip-loop]'), clipEl = e.target.closest('[data-clip]');
     const strip = e.target.closest('.gb-cycle-strip'), ruler = e.target.closest('.gb-ruler'), lane = e.target.closest('[data-lane]');
     const free = e.altKey, pps = this.pps();
     let drag = null;
     if (loop) {
       const found = this.findClip(loop.dataset.clipLoop); if (!found) return;
+      if (found.track.locked) { this.notify('This track is locked. Unlock it before editing the clip.'); return; }
       const el = loop.parentElement, len0 = this.clipLen(found.clip);
-      drag = { move: ev => { const len = Math.max(this.beat() / 4, this.snap(found.clip.start + len0 + (ev.clientX - e.clientX) / pps, ev.altKey) - found.clip.start); drag.len = len; el.style.width = Math.max(6, len * pps) + 'px'; },
+      drag = { move: ev => { const len = Math.max(this.beat() / 4, this.snapCycle(found.clip.start + len0 + (ev.clientX - e.clientX) / pps, ev.altKey) - found.clip.start); drag.len = len; el.style.width = Math.max(6, len * pps) + 'px'; },
         up: () => { if (drag.len != null) this.setClipLength(found.clip.id, drag.len); } };
     } else if (clipEl) {
       const found = this.findClip(clipEl.dataset.clip); if (!found) return;
+      if (found.track.locked) { this.notify('This track is locked. Unlock it before moving clips.'); return; }
       this.selected = found.clip.id; host.querySelectorAll('.gb-clip.sel').forEach(x => x.classList.remove('sel')); clipEl.classList.add('sel');
       const s0 = found.clip.start;
       drag = { move: ev => {
@@ -491,12 +679,12 @@ window.RecordingStudio = class RecordingStudio {
           const under = document.elementsFromPoint(ev.clientX, ev.clientY).find(x => x.dataset?.lane);
           host.querySelectorAll('.drop-hover').forEach(x => x.classList.remove('drop-hover')); if (under) under.classList.add('drop-hover'); drag.lane = under?.dataset.lane;
         },
-        up: () => { if (drag.moved) this.moveClip(found.clip.id, drag.lane || found.track.id, drag.start ?? s0); else this.refresh(); } };
+        up: () => { if (drag.moved) this.moveClip(found.clip.id, drag.lane || found.track.id, drag.start ?? s0); } };
     } else if (strip) {
-      const t0 = this.snapBar(this.laneTime(strip.parentElement, e.clientX));
+      const t0 = this.snapCycle(this.laneTime(strip.parentElement, e.clientX), e.altKey);
       const region = strip.parentElement.querySelector('.gb-cycle-region') || (() => { const d = document.createElement('div'); d.className = 'gb-cycle-region on'; strip.parentElement.prepend(d); return d; })();
-      drag = { move: ev => { const t1 = this.snapBar(this.laneTime(strip.parentElement, ev.clientX)); const a = Math.min(t0, t1), z = Math.max(t0, t1, a + this.bar()); drag.a = a; drag.z = z; region.classList.add('on'); region.style.left = a * pps + 'px'; region.style.width = (z - a) * pps + 'px'; },
-        up: () => { const a = drag.a ?? t0, z = drag.z ?? t0 + this.bar(); this.restartIfPlaying(() => { this.cycle = { on: true, start: a, end: z }; }); this.save(); } };
+      drag = { move: ev => { const t1 = this.snapCycle(this.laneTime(strip.parentElement, ev.clientX), ev.altKey); const a = Math.min(t0, t1), z = Math.max(t0, t1, a + this.beat() / 4); drag.a = a; drag.z = z; region.classList.add('on'); region.style.left = a * pps + 'px'; region.style.width = (z - a) * pps + 'px'; },
+        up: () => { const a = Math.max(0, drag.a ?? t0), z = Math.max(a + this.beat() / 4, drag.z ?? t0 + this.beat()); this.restartIfPlaying(() => { this.cycle = { on: true, start: a, end: z }; }); this.save(); } };
       drag.move(e);
     } else if (ruler || lane) {
       const base = ruler || lane; this.seek(this.laneTime(base, e.clientX));
@@ -508,12 +696,16 @@ window.RecordingStudio = class RecordingStudio {
     const move = ev => drag.move(ev), up = ev => {
       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
       host.querySelectorAll('.drop-hover').forEach(x => x.classList.remove('drop-hover'));
-      this.drag = null; drag.up(ev); this.dirty = true;
+      this.drag = null; drag.up(ev);
     };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
   }
   key(e) {
     if (this.app.state?.tab !== 'studio' || e.target.closest?.('input,textarea,[contenteditable]')) return;
+    if (e.key === 'Escape') { this.splitPoint = null; this.hideTrackMenu(); this.refresh(); return; }
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); this.undo(e.shiftKey); return; }
+    if (mod && e.key.toLowerCase() === 't') { e.preventDefault(); this.splitClipAtPlayhead(this.selected); return; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selected) { e.preventDefault(); this.deleteClip(this.selected); }
     else if (e.key === 'c' || e.key === 'C') this.toggleCycle();
     else if (e.key === 'k' || e.key === 'K') this.toggleMetronome();
