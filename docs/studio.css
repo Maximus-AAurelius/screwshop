@@ -229,3 +229,16 @@
 .gb-studio .ox-body .ox-lit{outline:calc(var(--u)*1.2) solid #ffe066;outline-offset:calc(var(--u)*.8);animation:ox-pulse .9s ease-in-out infinite alternate;z-index:5}
 @keyframes ox-pulse{to{outline-color:#b583ff}}
 .gb-studio .ox-body.ox-helping [data-help]{cursor:help}
+
+/* The bottom navigation already occupies its own row: give its former padding
+   and the instruction footer back to the multitrack viewport. */
+.recording-workspace.gb-studio{padding-bottom:8px;overflow:hidden}
+.gb-studio .gb-bar,.gb-studio .gb-edit-bar{flex-shrink:0}
+.gb-studio .gb-main{flex:1 1 0;min-height:0;overflow:hidden}
+.gb-studio .gb-arrange{flex:1 1 0;min-height:0;max-height:none}
+.gb-studio .recording-hint{position:absolute;width:1px;height:1px;padding:0;margin:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+@media(max-width:900px){
+  .gb-studio .gb-right{flex-wrap:wrap;min-width:0}
+  .gb-studio .gb-browser{flex:0 1 32%;max-height:32%;min-height:0}
+  .gb-studio .gb-arrange{flex:1 1 0;max-height:none;min-height:0}
+}
