@@ -9,6 +9,7 @@ window.RecordingStudio = class RecordingStudio {
     this.playing = false; this.busy = false; this.ready = false; this.rate = 1;
     this.bpm = 82; this.cycle = { on: false, start: 0, end: 0 }; this.metronome = false; this.countIn = true;
     this.zoom = 26; // pixels per beat
+    this.follow = false; // the view stays where you put it while playing; FOLLOW turns page-turning back on
     this.selected = null; this.drag = null; this.dirty = true;
     this.clipboard = null; this.trackMenu = null; this.splitPoint = null; this.undoStack = []; this.redoStack = [];
     this.timer = setInterval(() => this.tick(), 50);
@@ -40,7 +41,7 @@ window.RecordingStudio = class RecordingStudio {
   snapBar(sec) { const b = this.bar(); return Math.max(0, Math.round(sec / b) * b); }
   snapCycle(sec, free) {
     if (free) return Math.max(0, sec);
-    const step = Math.max(0.015, this.beat() / 48);
+    const step = Math.min(this.beat() / 48, 1 / this.pps()); // effectively free: the loop goes exactly where you drag, at any zoom
     return Math.max(0, Math.round(sec / step) * step);
   }
   allClips() { return this.tracks.flatMap(t => t.clips.map(c => ({ track: t, clip: c }))); }
@@ -65,6 +66,7 @@ window.RecordingStudio = class RecordingStudio {
         if (saved.metronome != null) this.metronome = !!saved.metronome;
         if (saved.countIn != null) this.countIn = !!saved.countIn;
         if (saved.zoom) this.zoom = +saved.zoom;
+        if (saved.follow != null) this.follow = !!saved.follow;
       } else {
         const beats = await this.checked(this.app.sb.from('beats').select('*').eq('song_id', this.app.SONG_UUID).order('created_at', { ascending: false }));
         if (beats?.[0]?.storage_path) this.tracks.push(this.normalize({ id: 'beat', name: beats[0].label || 'Beat', url: this.url('beats', beats[0].storage_path), offset: 0, volume: 0.8 }));
@@ -80,7 +82,7 @@ window.RecordingStudio = class RecordingStudio {
 
   save() {
     const tracks = this.tracks.map(t => ({ ...t, clips: t.clips.map(({ loadError, ...c }) => c) }));
-    const body = { id: 'recording-session', version: 3, tracks, bpm: this.bpm, cycle: this.cycle, metronome: this.metronome, countIn: this.countIn, zoom: this.zoom };
+    const body = { id: 'recording-session', version: 3, tracks, bpm: this.bpm, cycle: this.cycle, metronome: this.metronome, countIn: this.countIn, zoom: this.zoom, follow: this.follow };
     this.saving = (this.saving || Promise.resolve()).catch(() => {}).then(() => this.checked(this.app.sb.from('settings').upsert(body))).catch(e => { this.notify('Session not saved: ' + e.message); throw e; });
     this.saving.catch(() => {});
     return this.saving;
@@ -216,6 +218,7 @@ window.RecordingStudio = class RecordingStudio {
     v = Math.round(+v); if (!(v >= 30 && v <= 300)) return;
     this.restartIfPlaying(() => { this.bpm = v; }); this.save();
   }
+  setCycle(a, z, on = true) { a = Math.max(0, Math.min(a, z)); z = Math.max(a + 0.01, z); this.restartIfPlaying(() => { this.cycle = { on, start: a, end: z }; }); this.save(); }
   toggleCycle() {
     this.restartIfPlaying(() => {
       if (this.cycle.end - this.cycle.start < this.beat()) {
@@ -316,7 +319,27 @@ window.RecordingStudio = class RecordingStudio {
   splitClipToNewTrack(clipId) { this.splitClipAtPlayhead(clipId, true); }
   toggleMetronome() { this.restartIfPlaying(() => { this.metronome = !this.metronome; }); this.save(); }
   toggleCountIn() { this.countIn = !this.countIn; this.save(); this.refresh(); }
-  setZoom(dir) { this.zoom = Math.max(8, Math.min(1200, Math.round(this.zoom * (dir > 0 ? 1.35 : 1 / 1.35)))); this.save(); this.refresh(); }
+  // Zoom goes down to single samples. The only ceiling is the browser's maximum page width (about 16 million px).
+  zoomMax() { const total = Math.max(1, this.duration() + this.bar() * 4); return Math.max(8, this.beat() * Math.min(48000, 16e6 / total)); }
+  zoomTo(zoom, clientX) {
+    const host = document.getElementById('gb-arrange'); zoom = Math.max(8, Math.min(this.zoomMax(), zoom));
+    if (!host) { this.zoom = zoom; this.save(); this.refresh(); return; }
+    const oldPps = this.pps(), rect = host.getBoundingClientRect(), view = host.clientWidth - this.headW;
+    // Keep one point still: the mouse, else the playhead if it is on screen, else the middle of the view.
+    let x = clientX != null ? clientX - rect.left - this.headW : null;
+    if (x == null) { const head = this.position() * oldPps - host.scrollLeft; x = head >= 0 && head <= view ? head : view / 2; }
+    x = Math.max(0, Math.min(view, x));
+    const anchor = (host.scrollLeft + x) / oldPps;
+    this.zoom = zoom; this.build(host); host.scrollLeft = Math.max(0, anchor * this.pps() - x);
+    clearTimeout(this.zoomSave); this.zoomSave = setTimeout(() => this.save(), 250); this.app.setState(p => ({ studioRevision: (p.studioRevision || 0) + 1 }));
+  }
+  setZoom(dir) { this.zoomTo(this.zoom * (dir > 0 ? 1.5 : 1 / 1.5)); }
+  zoomFit() {
+    const host = document.getElementById('gb-arrange'), view = Math.max(200, (host?.clientWidth || 1000) - this.headW - 24);
+    this.zoom = Math.max(8, Math.min(this.zoomMax(), view / Math.max(this.contentEnd(), this.bar() * 4) * this.beat()));
+    if (host) { this.build(host); host.scrollLeft = 0; } this.save(); this.refresh();
+  }
+  toggleFollow() { this.follow = !this.follow; this.save(); this.refresh(); this.notify(this.follow ? 'FOLLOW on: the view turns the page to keep the playhead in sight.' : 'FOLLOW off: the view stays where you put it while the song plays.'); }
   trackColor(t, i) {
     if (t.id === 'beat' || /beat|drum|instrumental/i.test(t.name)) return '#66bb78';
     if (/vocal|take|voice/i.test(t.name) || t.clips.some(c => c.url?.includes('/takes/'))) return '#62afe9';
@@ -339,6 +362,8 @@ window.RecordingStudio = class RecordingStudio {
     if (!item?.url) { this.notify('That file has no audio address yet.'); return; }
     const clip = { id: this.newId(), name: item.name || 'Clip', url: item.url, start: this.snap(start ?? this.cursor), length: null };
     try { await this.decode(clip); } catch (e) { this.notify('Could not load ' + clip.name + ': ' + e.message); return; }
+    // Chops and word clips carry a trim: bring just that part, not the whole source file.
+    if (Number.isFinite(item.end) && item.end > (item.start || 0)) { clip.sourceOffset = Math.max(0, item.start || 0); clip.length = item.end - clip.sourceOffset; }
     let track = this.tracks.find(t => t.id === trackId);
     this.restartIfPlaying(() => {
       if (!track) { track = this.addTrack(item.name); }
@@ -477,7 +502,7 @@ window.RecordingStudio = class RecordingStudio {
       if ((this.dirty || host.dataset.built !== '1') && !this.drag) this.build(host);
       const head = host.querySelector('.gb-playhead');
       if (head) head.style.transform = 'translateX(' + (position * this.pps()) + 'px)';
-      if (this.playing && !this.drag && this.follow !== false) {
+      if (this.playing && !this.drag && this.follow === true) {
         const x = position * this.pps() + this.headW, left = host.scrollLeft, w = host.clientWidth;
         if (x > left + w - 40 || x < left + this.headW) host.scrollLeft = Math.max(0, x - this.headW - 40);
       }
@@ -496,8 +521,8 @@ window.RecordingStudio = class RecordingStudio {
     // ruler + cycle strip
     html += '<div class="gb-row gb-ruler-row"><div class="gb-corner">' + this.tracks.length + ' TRACK' + (this.tracks.length === 1 ? '' : 'S') + '</div><div class="gb-ruler" style="width:' + W + 'px;--bar:' + barPx + 'px;--beatw:' + this.zoom + 'px">';
     const c = this.cycle;
-    if (c.end - c.start > 0) html += '<div class="gb-cycle-region' + (c.on ? ' on' : '') + '" style="left:' + (c.start * pps) + 'px;width:' + ((c.end - c.start) * pps) + 'px"></div>';
-    html += '<div class="gb-cycle-strip" title="Drag here to set the cycle (loop) region"></div>';
+    html += '<div class="gb-cycle-strip" title="LOOP: drag left or right here to draw a loop. Drag its edges to resize, its middle to move it. Double-click it or press C to turn it on/off."><span>drag here to loop</span></div>';
+    if (c.end - c.start > 0) html += '<div class="gb-cycle-region' + (c.on ? ' on' : '') + '" style="left:' + (c.start * pps) + 'px;width:' + ((c.end - c.start) * pps) + 'px" title="Drag the middle to move, the edges to resize. Double-click to turn the loop ' + (c.on ? 'off' : 'on') + '."><i class="gb-cycle-edge" data-cycle-edge="l"></i><i class="gb-cycle-edge" data-cycle-edge="r"></i><button class="gb-cycle-off" data-cycle-off="1" aria-label="' + (c.on ? 'Turn loop off' : 'Turn loop on') + '" title="' + (c.on ? 'Turn loop off' : 'Turn loop on') + '">' + (c.on ? '×' : '⟲') + '</button></div>';
     for (let i = 0; i < bars; i++) html += '<span class="gb-barnum" style="left:' + (i * barPx) + 'px">' + (i + 1) + '</span>';
     html += '</div></div>';
     // tracks
@@ -546,6 +571,13 @@ window.RecordingStudio = class RecordingStudio {
     if (!buffer) { ctx.fillStyle = '#ffffff55'; ctx.font = '11px system-ui'; ctx.fillText('loading…', 6, 26); return; }
     const L = this.clipLen(clip), D = buffer.duration, data = buffer.getChannelData(0), perPx = width / this.pps() / w, viewStart = offset / this.pps();
     ctx.fillStyle = 'rgba(15,8,24,.72)';
+    const perSample = perPx * buffer.sampleRate;
+    if (perSample < 1.5) { // zoomed in to single samples: draw the real wave, with dots on each sample when there is room
+      ctx.strokeStyle = 'rgba(15,8,24,.85)'; ctx.lineWidth = 1.5; ctx.beginPath();
+      for (let x = 0; x < w; x++) { const t = ((clip.sourceOffset || 0) + viewStart + x * perPx) % D, i = Math.min(data.length - 1, Math.floor(t * buffer.sampleRate)); const y = h / 2 - data[i] * (h / 2 - 2); if (x) ctx.lineTo(x, y); else ctx.moveTo(x, y); }
+      ctx.stroke(); ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.fillRect(0, h / 2, w, 1);
+      if (perSample < 0.12) { ctx.fillStyle = 'rgba(15,8,24,.95)'; const first = Math.ceil(((clip.sourceOffset || 0) + viewStart) * buffer.sampleRate); for (let i = first; ; i++) { const x = (i / buffer.sampleRate - (clip.sourceOffset || 0) - viewStart) / perPx; if (x > w) break; const y = h / 2 - data[i % data.length] * (h / 2 - 2); ctx.fillRect(x - 2, y - 2, 4, 4); } }
+    } else
     for (let x = 0; x < w; x++) {
       const t0 = ((clip.sourceOffset || 0) + viewStart + x * perPx) % D, t1 = t0 + perPx;
       const a = Math.floor(t0 / D * data.length), z = Math.min(data.length, Math.max(a + 1, Math.floor(t1 / D * data.length)));
@@ -562,22 +594,17 @@ window.RecordingStudio = class RecordingStudio {
   wire(host) {
     host.dataset.wired = '1';
     host.addEventListener('wheel', e => {
-      if (!e.shiftKey || this.drag || this.recording || !this.selected) return;
+      if (!(e.ctrlKey || e.metaKey || e.shiftKey) || this.drag) return;
       const delta = e.deltaY || e.deltaX; if (!delta) return;
       e.preventDefault();
-      const oldPps = this.pps();
-      const x = Math.max(this.headW + 1, Math.min(host.clientWidth - 1, e.clientX - host.getBoundingClientRect().left));
-      const anchor = (host.scrollLeft + x - this.headW) / oldPps;
-      this.zoom = Math.max(8, Math.min(1200, this.zoom * (delta < 0 ? 1.18 : 1 / 1.18)));
-      this.build(host);
-      host.scrollLeft = Math.max(0, anchor * this.pps() + this.headW - x);
-      clearTimeout(this.zoomSave); this.zoomSave = setTimeout(() => this.save(), 250);
+      this.zoomTo(this.zoom * Math.pow(1.0025, -Math.max(-120, Math.min(120, delta))), e.clientX);
     }, { passive: false });
     host.addEventListener('scroll', () => {
       if (this.waveFrame) return;
       this.waveFrame = requestAnimationFrame(() => { this.waveFrame = null; host.querySelectorAll('canvas[data-clip-wave]').forEach(cv => this.drawClip(cv)); });
     });
     host.addEventListener('pointerdown', this.onPointerDown);
+    host.addEventListener('dblclick', e => { if (e.target.closest('.gb-cycle-region') && !e.target.closest('button')) this.toggleCycle(); });
     host.addEventListener('change', e => {
       const t = e.target;
       if (t.dataset.trackName) this.change(t.dataset.trackName, { name: t.value });
@@ -655,13 +682,28 @@ window.RecordingStudio = class RecordingStudio {
   }
   pointerDown(e) {
     if (this.markerDrag(e)) return;
+    const cycleOff = e.target.closest('[data-cycle-off]');
+    if (cycleOff && e.button === 0) { e.preventDefault(); e.stopPropagation(); this.toggleCycle(); return; }
     if (e.button !== 0 || e.target.closest('button,input')) return;
     this.splitPoint = null; e.currentTarget.querySelectorAll('.gb-scissors').forEach(el => el.remove());
     const host = e.currentTarget, loop = e.target.closest('[data-clip-loop]'), clipEl = e.target.closest('[data-clip]');
     const strip = e.target.closest('.gb-cycle-strip'), ruler = e.target.closest('.gb-ruler'), lane = e.target.closest('[data-lane]');
     const free = e.altKey, pps = this.pps();
     let drag = null;
-    if (loop) {
+    const regionEl = e.target.closest('.gb-cycle-region');
+    if (regionEl) {
+      const edge = e.target.closest('[data-cycle-edge]')?.dataset.cycleEdge, a0 = this.cycle.start, z0 = this.cycle.end, ruler0 = regionEl.parentElement;
+      const t0 = this.laneTime(ruler0, e.clientX);
+      drag = { move: ev => {
+          const t = this.laneTime(ruler0, ev.clientX); let a = a0, z = z0;
+          if (edge === 'l') a = this.snapCycle(t, ev.altKey); else if (edge === 'r') z = this.snapCycle(t, ev.altKey);
+          else { const d = this.snapCycle(Math.max(0, a0 + t - t0), ev.altKey) - a0; a = a0 + d; z = z0 + d; }
+          if (z < a) [a, z] = [z, a]; // dragging an edge past the other one just flips it
+          drag.a = a; drag.z = z; drag.moved = drag.moved || Math.abs(ev.clientX - e.clientX) > 2;
+          regionEl.style.left = a * pps + 'px'; regionEl.style.width = Math.max(2, (z - a) * pps) + 'px';
+        },
+        up: () => { if (drag.moved && drag.a != null) this.setCycle(drag.a, drag.z, this.cycle.on || true); } };
+    } else if (loop) {
       const found = this.findClip(loop.dataset.clipLoop); if (!found) return;
       if (found.track.locked) { this.notify('This track is locked. Unlock it before editing the clip.'); return; }
       const el = loop.parentElement, len0 = this.clipLen(found.clip);
@@ -682,9 +724,10 @@ window.RecordingStudio = class RecordingStudio {
         up: () => { if (drag.moved) this.moveClip(found.clip.id, drag.lane || found.track.id, drag.start ?? s0); } };
     } else if (strip) {
       const t0 = this.snapCycle(this.laneTime(strip.parentElement, e.clientX), e.altKey);
-      const region = strip.parentElement.querySelector('.gb-cycle-region') || (() => { const d = document.createElement('div'); d.className = 'gb-cycle-region on'; strip.parentElement.prepend(d); return d; })();
-      drag = { move: ev => { const t1 = this.snapCycle(this.laneTime(strip.parentElement, ev.clientX), ev.altKey); const a = Math.min(t0, t1), z = Math.max(t0, t1, a + this.beat() / 4); drag.a = a; drag.z = z; region.classList.add('on'); region.style.left = a * pps + 'px'; region.style.width = (z - a) * pps + 'px'; },
-        up: () => { const a = Math.max(0, drag.a ?? t0), z = Math.max(a + this.beat() / 4, drag.z ?? t0 + this.beat()); this.restartIfPlaying(() => { this.cycle = { on: true, start: a, end: z }; }); this.save(); } };
+      const region = (() => { const d = document.createElement('div'); d.className = 'gb-cycle-region on'; strip.parentElement.prepend(d); return d; })();
+      region.innerHTML = '';
+      drag = { move: ev => { const t1 = this.snapCycle(this.laneTime(strip.parentElement, ev.clientX), ev.altKey); const a = Math.min(t0, t1), z = Math.max(t0, t1); drag.a = a; drag.z = z; region.classList.add('on'); region.style.left = a * pps + 'px'; region.style.width = Math.max(2, (z - a) * pps) + 'px'; },
+        up: () => { if (drag.a == null || drag.z - drag.a < 3 / pps) { region.remove(); this.refresh(); return; } this.setCycle(drag.a, drag.z, true); } };
       drag.move(e);
     } else if (ruler || lane) {
       const base = ruler || lane; this.seek(this.laneTime(base, e.clientX));
@@ -709,6 +752,7 @@ window.RecordingStudio = class RecordingStudio {
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selected) { e.preventDefault(); this.deleteClip(this.selected); }
     else if (e.key === 'c' || e.key === 'C') this.toggleCycle();
     else if (e.key === 'k' || e.key === 'K') this.toggleMetronome();
+    else if ((e.key === 'f' || e.key === 'F') && !mod) this.toggleFollow();
     else if ((e.key === 'd' || e.key === 'D') && (e.ctrlKey || e.metaKey) && this.selected) { e.preventDefault(); this.duplicateClip(this.selected); }
   }
   // Loop browser rows carry data-loop-url / data-loop-name; dragging one onto a lane adds a clip there.

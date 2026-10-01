@@ -1,4 +1,5 @@
 demucs==4.0.1
+faster-whisper==1.2.1
 numpy==2.4.6
 soundfile==0.14.0
 imageio-ffmpeg==0.6.0

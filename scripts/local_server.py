@@ -26,6 +26,7 @@ from local_devices import Devices
 from sound_library import index_split, save_library_pack
 from local_tls import local_addresses
 import local_tailscale
+import lyric_finder
 from studio_exports import save_stem, save_pack, reuse_stem, safe_export_path, save_mp3, mp3_available
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -234,6 +235,24 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     raise ValueError("Choose a WAV, full sound pack, or library copy")
                 return self.json({"data": result, "error": None})
+            if path in ("/api/lyrics", "/api/transcript"):
+                req = json.loads(self.read_body(65536))
+                url = unquote(str(req.get("url", "")))
+                if not url.startswith("/audio/"):
+                    raise ValueError("Pick a sound from the library first")
+                bucket, name = url[len("/audio/"):].split("/", 1)
+                source = self.server.store.asset(bucket, name)
+                if not source.is_file():
+                    raise ValueError("That sound's audio file is missing")
+                try:
+                    words = lyric_finder.transcribe(self.server.store, source)
+                except ValueError:
+                    raise
+                except Exception as exc:  # model download or decode problems
+                    raise ValueError("Lyric finder couldn't listen to this sound: " + str(exc)[:200])
+                if path == "/api/transcript":  # every heard word with its timing, for picking words by hand
+                    return self.json({"data": {"words": words}, "error": None})
+                return self.json({"data": {"matches": lyric_finder.find(words, str(req.get("text", ""))[:4000])}, "error": None})
             if path == "/api/query":
                 query = json.loads(self.read_body(2 * 1024 * 1024))
                 if query.get("table") == "exports" and query.get("action", "select") != "select":

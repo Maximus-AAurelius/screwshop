@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory() as temp:
             page.wait_for_function('window.levels().some(v=>v>0.01)')
             page.get_by_label('Cue deck A',exact=True).click()
             page.get_by_label('Deck A playback',exact=True).get_by_text('PLAY',exact=True).wait_for()
-            page.get_by_role('button',name='WRITE',exact=True).click()
+            page.get_by_role('button',name='SONGS',exact=True).click()
             page.get_by_label('Pause audio',exact=True).click()
             page.wait_for_function('window.levels().every(v=>v<0.00001)')
             page.get_by_label('Play audio',exact=True).click()

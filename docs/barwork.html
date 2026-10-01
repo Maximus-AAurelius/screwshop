@@ -125,7 +125,7 @@ button:focus-visible,input:focus-visible{outline:2px solid #e2c6ff;outline-offse
 <div class="gb-lcd" aria-label="Position"><b data-gb-bars="true">1.1.1</b><span data-studio-clock="true">0:00</span><small>{{ studioBpm }} BPM · 4/4</small></div>
 <div class="gb-group"><button onClick="{{ studioCycle }}" class="{{ studioCycleClass }}" title="Cycle (C): loop the yellow region in the ruler">⟲ CYCLE</button><button onClick="{{ studioMetro }}" class="{{ studioMetroClass }}" title="Metronome (K)">♩ CLICK</button><button onClick="{{ studioCountIn }}" class="{{ studioCountClass }}" title="One bar of clicks before recording">1234 COUNT-IN</button></div>
 <label class="gb-tempo">TEMPO<input aria-label="Project tempo" type="number" min="30" max="300" value="{{ studioBpm }}" onChange="{{ studioSetBpm }}" /></label>
-<div class="gb-group"><button onClick="{{ studioZoomOut }}" aria-label="Zoom out" title="Zoom out">−</button><button onClick="{{ studioZoomIn }}" aria-label="Zoom in" title="Zoom in">+</button></div>
+<div class="gb-group"><button onClick="{{ studioZoomOut }}" aria-label="Zoom out" title="Zoom out (or Ctrl + scroll)">−</button><button onClick="{{ studioZoomIn }}" aria-label="Zoom in" title="Zoom in (or Ctrl + scroll, down to single samples)">+</button><button onClick="{{ studioZoomFit }}" aria-label="Fit whole song" title="Zoom out to fit the whole song">FIT</button><button onClick="{{ studioFollow }}" class="{{ studioFollowClass }}" aria-label="Follow playhead" title="F: when on, the view turns the page to keep the playhead in sight. Off keeps the view still while it plays.">⇥ FOLLOW</button></div>
 <div class="gb-group gb-right"><button onClick="{{ studioAddTrack }}">+ TRACK</button><button onClick="{{ studioImport }}">IMPORT AUDIO</button><button onClick="{{ studioSources }}" class="{{ studioLoopsClass }}">SOUND LIBRARY</button><button onClick="{{ studioOxygen }}">M-AUDIO / SAMPLER</button><button onClick="{{ studioExportMix }}">EXPORT MIX WAV</button><sc-if value="{{ studioHasMp3 }}"><button onClick="{{ studioExportMp3 }}">EXPORT MIX MP3</button></sc-if></div>
 </div>
 <sc-if value="{{ studioPending }}" hint-placeholder-val="{{ false }}"><button onClick="{{ studioRetry }}">RETRY SAVE RECORDING</button></sc-if>
@@ -1840,6 +1840,9 @@ class Component extends DCLogic {
       studioCountClass: this.studio?.countIn ? "on" : "",
       studioZoomIn: () => this.studio.setZoom(1),
       studioZoomOut: () => this.studio.setZoom(-1),
+      studioZoomFit: () => this.studio.zoomFit(),
+      studioFollow: () => this.studio.toggleFollow(),
+      studioFollowClass: this.studio?.follow ? "on" : "",
       studioSplit: () => this.studio.splitClipAtPlayhead(this.studio.selected),
       studioDeleteRegion: () => this.studio.deleteClip(this.studio.selected),
       studioUndo: () => this.studio.undo(),

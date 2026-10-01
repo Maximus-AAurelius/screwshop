@@ -23,7 +23,7 @@ window.StudioWorkspace = class {
     if(!this.app.sb || this.fetching) return;
     this.fetching=true;
     try { const [settings,takes]=await Promise.all([this.checked(this.app.sb.from('settings').select('*')),this.checked(this.app.sb.from('takes').select('*'))]);
-      this.folders=settings.filter(r=>['split','pack'].includes(r.folder_type)); this.takes=takes; this.libSignature='';
+      this.folders=settings.filter(r=>['split','pack'].includes(r.folder_type)); this.takes=takes; // tick() redraws only when this data actually changed
     } catch(e) { this.notify('Library could not refresh: '+e.message); }
     finally {this.fetching=false;this.lastFetch=Date.now();}
   }
@@ -172,27 +172,24 @@ window.StudioWorkspace = class {
   }
   // The drawer is a scale copy of the Oxygen 25 (MKV) product photo. at() takes
   // pixel positions measured on that 572x302 photo and turns them into percentages.
-  mountPanel() {
-    const p=this.panel,esc=s=>this.esc(s),names=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'],L=this.labels();
+  // o says what the pads, keys and knobs are wired to, so the sampler can reuse the drawing.
+  oxygenBody(o) {
+    const names=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'],L=this.labels(),title=t=>t?` title="${this.esc(t)}"`:'';
     const at=(x,y,w,h)=>`left:${((x-6)/5.72).toFixed(2)}%;top:${((y-2)/3.02).toFixed(2)}%;width:${(w/5.72).toFixed(2)}%;height:${(h/3.02).toFixed(2)}%`;
     const print=(x,y,w,text,cls='',help='')=>`<span class="ox-print ${cls}" style="${at(x,y,w,5)}"${help?` data-help="${help}"`:''}>${text}</span>`;
     const hw=(x,y,help,attrs,label,cls='')=>`<button class="ox-hw ${cls}" style="${at(x,y,17,11)}" data-help="${help}" ${attrs} aria-label="${label}"></button>`;
-    const low=48+this.octave*12,white=[];for(let n=low;n<low+25;n++)if(!names[n%12].includes('#'))white.push(n);
+    const low=o.low,white=[];for(let n=low;n<low+25;n++)if(!names[n%12].includes('#'))white.push(n);
     const kw=430/white.length;
-    const keys=Array.from({length:25},(_,i)=>{const note=low+i,name=names[note%12],black=name.includes('#'),wi=white.filter(n=>n<note).length;
-      return `<button class="ox-key ${black?'black':'white'}" style="${black?at(125+wi*kw-8,128,16,108):at(125+wi*kw,128,kw,172)}" data-key="${note}" data-target="keys" data-help="keys" data-item="key:${i}" aria-label="Key ${name}${Math.floor(note/12)-1}"><span>${name==='C'?'C'+(Math.floor(note/12)-1):''}</span></button>`;}).join('');
+    const keys=Array.from({length:25},(_,i)=>{const note=low+i,name=names[note%12],black=name.includes('#'),wi=white.filter(n=>n<note).length,k=o.key(note,i,name+(Math.floor(note/12)-1));
+      return `<button class="ox-key ${black?'black':'white'}${k.cls?' '+k.cls:''}" style="${black?at(125+wi*kw-8,128,16,108):at(125+wi*kw,128,kw,172)}" ${k.attrs} data-help="keys" data-item="key:${i}" aria-label="${this.esc(k.label)}"${title(k.title)}><span>${k.text}</span></button>`;}).join('');
     const lx=i=>125+Math.floor(i/12)*200.7+(i%12)*16.72;
     const strip=[['top',113.5],['bottom',123]].map(([row,y])=>L[row].map((t,i)=>t?print(lx(i),y,16.72,t,'ox-keylabel'+(t.length>6?' ox-small':''),L.group(row,i)).replace('<span','<span data-item="label:'+L.group(row,i)+':'+t+'"'):'').join('')).join('')
       +print(lx(0),109,40,'ARP CTRL','ox-keyhead','lbl-arp')+print(lx(12),109,40,'TIME DIV','ox-keyhead','lbl-div')
       +print(lx(0),118.5,30,'KEY','ox-keyhead','lbl-key')+print(lx(12),118.5,40,'VOICING','ox-keyhead','lbl-voicing')+print(lx(20),118.5,40,'TYPE','ox-keyhead','lbl-type');
     const knobAt=[[199,27],[241,27],[285,27],[328,27],[219,70],[263,70],[306,70],[350,70]];
-    const tracks=this.app.studio.tracks||[];tracks.slice(0,8).forEach((t,i)=>{this.knobs[i]=Math.round((t.volume??.8)*127);});
-    const padAt=i=>[380+(i%4)*47,i<4?17:63];
-    const learn=[['play','Play button'],['stop','Stop button'],['record','Record button'],['cycle','Loop button'],['volume','Fader (master)'],['faderbtn','Fader button (mute)'],['mod','Mod wheel'],...Array.from({length:8},(_,i)=>['level'+i,'Knob '+(i+1)]),...this.padNotes.map((_,i)=>['pad'+i,'Pad '+(i+1)])];
-    p.innerHTML=`<div class="ox-title"><strong>M-AUDIO <span>OXYGEN 25 MKV</span></strong><span class="ox-midi-status"></span><button data-connect>CONNECT MIDI</button><button class="ox-record" data-action="record">RECORD MIDI AUDIO</button><button data-whats>WHAT'S THIS?</button><button data-guide>TRILL GUIDE</button><button data-close aria-label="Close Oxygen panel">&times;</button></div>
-<div class="ox-tools"><div class="ox-sample"></div><div class="ox-learn"><label>MIDI Learn<select class="ox-learn-target">${learn.map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select></label><button data-learn-selected>${this.learning?'CANCEL LEARN':'LEARN'}</button><button data-panic>PANIC</button></div></div>
-<div class="ox-deck"><div class="ox-guide"></div><div class="ox-scroll"><div class="ox-stage"><div class="ox-body${this.helpMode?' ox-helping':''}" role="group" aria-label="Oxygen 25 keyboard">
-${print(47,18.5,90,'M-AUDIO','ox-logo')}
+    // Matches the real Oxygen 25: pads 1-4 are the BOTTOM row, pads 5-8 the TOP row.
+    const padAt=i=>[380+(i%4)*47,i<4?63:17];
+    return `${print(47,18.5,90,'M-AUDIO','ox-logo')}
 <div class="ox-display" style="${at(49,41,58,32)}" data-help="display">025</div>
 ${print(52,74,12,'ARP','ox-tag','modeleds')}${print(68,74,17,'CHORD','ox-tag','modeleds')}${print(89,74,16,'SCALE','ox-tag','modeleds')}
 ${print(112,36,28,'NOTE<br>REPEAT','ox-two')}<i class="ox-led" style="${at(123.5,45,5,5)}" data-led="repeat" data-help="nrled"></i>
@@ -212,14 +209,26 @@ ${print(48,177,26,'PITCH')}${print(88,177,26,'MOD')}
 <input class="ox-wheel" style="${at(92,185,18,68)}" data-mod data-help="mod" type="range" min="0" max="127" value="${Math.round(this.mod*127)}" aria-label="Mod wheel">
 ${print(45,275.5,84,'OXYGEN<b>25</b>','ox-wordmark')}
 <span class="ox-ticks" style="${at(141,28,7,54)}"></span><div class="ox-fader-slot" style="${at(150,25,17,60)}"></div>
-<input class="ox-fader" style="${at(150,25,17,60)}" data-master data-help="fader" type="range" min="0" max="1" step=".01" value="${this.volume}" aria-label="Fader (sampler master volume)">
-${knobAt.map(([x,y],i)=>`<button class="ox-knob" style="${at(x-8,y-8,16,16)}" data-knob="${i}" data-help="knobs" data-item="knob:${i}" aria-label="Knob ${i+1} (track ${i+1} volume)"><i style="transform:rotate(${-135+this.knobs[i]/127*270}deg)"></i></button>`).join('')}
+<input class="ox-fader" style="${at(150,25,17,60)}" data-master data-help="fader" type="range" min="0" max="1" step=".01" value="${o.volume}" aria-label="Fader (sampler master volume)">
+${knobAt.map(([x,y],i)=>`<button class="ox-knob" style="${at(x-8,y-8,16,16)}" data-knob="${i}" data-help="knobs" data-item="knob:${i}" aria-label="${this.esc(o.knobLabel(i))}"><i style="transform:rotate(${-135+o.knobs[i]/127*270}deg)"></i></button>`).join('')}
 ${[['cycle',225,'Loop','&#10227;'],['stop',259,'Stop','&#9632;'],['play',293,'Play','&#9654;'],['record',327,'Record','&#9679;']].map(([a,x,l,s])=>`<button class="ox-hw ox-transport" style="${at(x,89,17,11)}" data-action="${a}" data-help="${a}" aria-label="${l}">${s}</button>`).join('')}${print(254,103,27,'PANIC','','stop')}
-${this.slots.map((s,i)=>{const [x,y]=padAt(i);return `<button class="ox-pad" style="${at(x,y,38,38)}" data-pad="${i}" data-target="${i}" data-help="pads" data-item="pad:${i}" aria-label="Pad ${i+1}"><span>${esc(s?.name||this.app.state.pads[i]?.name||'')}</span></button>`;}).join('')}
+${Array.from({length:8},(_,i)=>{const [x,y]=padAt(i),d=o.pad(i);return `<button class="ox-pad${d.cls?' '+d.cls:''}" style="${at(x,y,38,38)}" ${d.attrs} data-help="pads" data-item="pad:${i}" aria-label="${this.esc(d.label)}"${title(d.title)}>${d.html}</button>`;}).join('')}
 ${print(380,57,38,'PAD BANK 1','','padbank')}${print(427,57,38,'PAD BANK 2','','padbank')}
 ${print(334,103,46,'DAW KNOB CONTROL','ox-left ox-small','knobmode')}${['VOLUME','PAN','DEVICE','SENDS'].map((t,i)=>print(380+i*47,103,38,t,'','knobmode')).join('')}<span class="ox-rule" style="${at(334,108.5,226,1)}"></span>
 <div class="ox-strip" style="${at(122,107,437,21)}" data-help="keys"></div>${strip}<span class="ox-rule" style="${at(125,118.3,430,.6)}"></span>
-<div class="ox-keybed" style="${at(122,126,437,176)}"></div>${keys}
+<div class="ox-keybed" style="${at(122,126,437,176)}"></div>${keys}`;
+  }
+  mountPanel() {
+    const p=this.panel,esc=s=>this.esc(s);
+    const tracks=this.app.studio.tracks||[];tracks.slice(0,8).forEach((t,i)=>{this.knobs[i]=Math.round((t.volume??.8)*127);});
+    const learn=[['play','Play button'],['stop','Stop button'],['record','Record button'],['cycle','Loop button'],['volume','Fader (master)'],['faderbtn','Fader button (mute)'],['mod','Mod wheel'],...Array.from({length:8},(_,i)=>['level'+i,'Knob '+(i+1)]),...this.padNotes.map((_,i)=>['pad'+i,'Pad '+(i+1)])];
+    const drawing=this.oxygenBody({low:48+this.octave*12,volume:this.volume,knobs:this.knobs,knobLabel:i=>'Knob '+(i+1)+' (track '+(i+1)+' volume)',
+      pad:i=>({attrs:`data-pad="${i}" data-target="${i}"`,label:'Pad '+(i+1),html:`<span>${esc(this.slots[i]?.name||this.app.state.pads[i]?.name||'')}</span>`}),
+      key:(note,i,name)=>({attrs:`data-key="${note}" data-target="keys"`,label:'Key '+name,text:/^C-?\d/.test(name)?name:''})});
+    p.innerHTML=`<div class="ox-title"><strong>M-AUDIO <span>OXYGEN 25 MKV</span></strong><span class="ox-midi-status"></span><button data-connect>CONNECT MIDI</button><button class="ox-record" data-action="record">RECORD MIDI AUDIO</button><button data-whats>WHAT'S THIS?</button><button data-guide>TRILL GUIDE</button><button data-close aria-label="Close Oxygen panel">&times;</button></div>
+<div class="ox-tools"><div class="ox-sample"></div><div class="ox-learn"><label>MIDI Learn<select class="ox-learn-target">${learn.map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select></label><button data-learn-selected>${this.learning?'CANCEL LEARN':'LEARN'}</button><button data-panic>PANIC</button></div></div>
+<div class="ox-deck"><div class="ox-guide"></div><div class="ox-scroll"><div class="ox-stage"><div class="ox-body${this.helpMode?' ox-helping':''}" role="group" aria-label="Oxygen 25 keyboard">
+${drawing}
 </div></div></div></div>`;
     const body=p.querySelector('.ox-body');
     // WHAT'S THIS? mode: clicks explain a control instead of using it.
