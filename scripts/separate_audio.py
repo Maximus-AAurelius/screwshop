@@ -12,6 +12,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', choices=['htdemucs', 'htdemucs_6s'], required=True)
     parser.add_argument('--output', type=Path, required=True)
+    # --all: write every model source as float WAV with no rescaling, so the stems still sum to the song (engineer mix).
+    parser.add_argument('--all', action='store_true')
     parser.add_argument('source', type=Path)
     args = parser.parse_args()
     torch.set_num_threads(2)
@@ -32,6 +34,13 @@ def main():
     output = args.output / args.model / args.source.stem
     output.mkdir(parents=True, exist_ok=True)
     pairs = list(zip(model.sources, sources))
+    if args.all:
+        for name, source in pairs:
+            array = source.cpu().numpy().T
+            if not np.all(np.isfinite(array)):
+                raise ValueError('Model produced invalid audio')
+            sf.write(output / (name + '.wav'), array, rate, subtype='FLOAT')
+        return
     if args.model == 'htdemucs':
         vocals = sources[model.sources.index('vocals')]
         instrumental = sum(source for name, source in pairs if name != 'vocals')

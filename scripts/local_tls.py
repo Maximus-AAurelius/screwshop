@@ -40,6 +40,18 @@ def local_addresses():
     return sorted(a for a in found if not a.startswith("0."))
 
 
+def primary_address():
+    """The address phones should use: the one this computer reaches the home network with (not WSL/Hyper-V adapters)."""
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        probe.connect(("192.168.0.1", 9))  # picks the route; nothing is sent
+        address = probe.getsockname()[0]
+        probe.close()
+        return address
+    except OSError:
+        return None
+
+
 PRIVATE_NETS = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "100.64.0.0/10", "169.254.0.0/16"]
 
 
@@ -48,6 +60,14 @@ def _constraints(ca):
         return ca.extensions.get_extension_for_class(x509.NameConstraints).value
     except x509.ExtensionNotFound:
         return None
+
+
+def _has_ski(cert):
+    try:
+        cert.extensions.get_extension_for_class(x509.SubjectKeyIdentifier)
+        return True
+    except x509.ExtensionNotFound:
+        return False
 
 
 def _permitted_dns(ca):
@@ -72,7 +92,8 @@ def prepare(data, extra_names=(), extra_ips=()):
     if root_key_path.exists() and root_cert_path.exists():
         root_key = serialization.load_pem_private_key(root_key_path.read_bytes(), password=None)
         ca = x509.load_pem_x509_certificate(root_cert_path.read_bytes())
-        if _constraints(ca) is None or not all(_dns_ok(n, _permitted_dns(ca)) for n in wanted_dns):
+        # Also retire a CA without a Subject Key Identifier: strict (RFC 5280) validators reject its chain.
+        if _constraints(ca) is None or not all(_dns_ok(n, _permitted_dns(ca)) for n in wanted_dns) or not _has_ski(ca):
             # Retire the old unrestricted CA: keep its public certificate for reference, destroy its private key.
             retired = folder / ("retired-" + time.strftime("%Y%m%d-%H%M%S"))
             retired.mkdir()
@@ -91,6 +112,7 @@ def prepare(data, extra_names=(), extra_ips=()):
                   permitted_subtrees=[x509.DNSName(n) for n in wanted_dns] + [x509.IPAddress(ipaddress.ip_network(n)) for n in PRIVATE_NETS],
                   excluded_subtrees=None), critical=True)
               .add_extension(x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False, data_encipherment=False, key_agreement=False, key_cert_sign=True, crl_sign=True, encipher_only=False, decipher_only=False), critical=True)
+              .add_extension(x509.SubjectKeyIdentifier.from_public_key(root_key.public_key()), critical=False)
               .sign(root_key, hashes.SHA256()))
         root_key_path.write_bytes(root_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
         root_cert_path.write_bytes(ca.public_bytes(serialization.Encoding.PEM))
@@ -112,6 +134,9 @@ def prepare(data, extra_names=(), extra_ips=()):
             .not_valid_before(stamp - timedelta(days=1)).not_valid_after(stamp + timedelta(days=365))
             .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
             .add_extension(x509.SubjectAlternativeName(sans), critical=False)
+            # RFC 5280 key identifiers: strict validators reject a server certificate without them.
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+            .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca.public_key()), critical=False)
             .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
             .add_extension(x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=True, data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False, encipher_only=False, decipher_only=False), critical=True)
             .sign(root_key, hashes.SHA256()))

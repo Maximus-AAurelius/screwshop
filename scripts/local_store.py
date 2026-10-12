@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-TABLES = {"songs", "beats", "takes", "stems", "library", "pads", "split_jobs", "settings", "exports"}
+TABLES = {"songs", "beats", "takes", "stems", "library", "pads", "split_jobs", "polish_jobs", "settings", "exports"}
 BUCKETS = {"beats", "takes", "stems"}
 USER_ID = "local"
 

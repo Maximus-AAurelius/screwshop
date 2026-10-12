@@ -24,10 +24,15 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 from local_store import Store, USER_ID
 from local_devices import Devices
 from sound_library import index_split, save_library_pack
-from local_tls import local_addresses
+from local_tls import local_addresses, primary_address
 import local_tailscale
+import io
+import segno
 import lyric_finder
-from studio_exports import save_stem, save_pack, reuse_stem, safe_export_path, save_mp3, mp3_available
+import audio_polish
+import media_import
+from trash import move_to_trash
+from studio_exports import save_stem, save_pack, reuse_stem, safe_export_path, save_mp3, save_song_mp3, mp3_available
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "docs"
@@ -114,11 +119,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def json(self, body, code=200):
         data = json.dumps(body).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # The browser can close or reload after the local write has succeeded.
+            # A lost response must not be reported as a failed save.
+            pass
 
     def valid_host(self):
         host = self.headers.get("Host", "")
@@ -220,6 +230,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json({"data": self.device_overview(), "error": None})
             if not self.authenticated():
                 return self.json({"error": {"message": "Pair this phone with the computer first"}}, 401)
+            if path == "/api/polish":
+                req = json.loads(self.read_body(16384))
+                return self.json({"data": audio_polish.enqueue(self.server.store, req), "error": None}, 202)
+            if path == "/api/import-media":
+                # JSON {url, name} for a link, or the raw file bytes with an X-File-Name header.
+                if self.headers.get("Content-Type", "").startswith("application/json"):
+                    req = json.loads(self.read_body(8192))
+                    row = media_import.import_media(self.server.store, url=req.get("url"), name=req.get("name"))
+                else:
+                    row = media_import.import_media(self.server.store, data=self.read_body(MAX_AUDIO), filename=unquote(self.headers.get("X-File-Name", "")), name=unquote(self.headers.get("X-Song-Name", "")) or None)
+                return self.json({"data": row, "error": None})
             if path == "/api/export":
                 req = json.loads(self.read_body(4096))
                 if req.get("kind") == "library-pack":
@@ -230,6 +251,8 @@ class Handler(BaseHTTPRequestHandler):
                     result = save_pack(self.server.store, beat_id=req.get("beat_id"))
                 elif req.get("kind") == "reuse":
                     result = reuse_stem(self.server.store, req.get("stem_id"))
+                elif req.get("kind") == "song-mp3":
+                    result = save_song_mp3(self.server.store, req.get("storage_path"), req.get("name"), req.get("finish", True) is not False)
                 elif req.get("kind") == "mp3":
                     result = save_mp3(self.server.store, req.get("storage_path"), req.get("name", "ScrewShop mix"))
                 else:
@@ -253,8 +276,14 @@ class Handler(BaseHTTPRequestHandler):
                 if path == "/api/transcript":  # every heard word with its timing, for picking words by hand
                     return self.json({"data": {"words": words}, "error": None})
                 return self.json({"data": {"matches": lyric_finder.find(words, str(req.get("text", ""))[:4000])}, "error": None})
+            if path == "/api/trash":
+                # Runs after the app's 10-second UNDO window; moves unused audio into "Deleted Files".
+                req = json.loads(self.read_body(2 * 1024 * 1024))
+                return self.json({"data": move_to_trash(self.server.store, req.get("items"), str(req.get("label", ""))[:160]), "error": None})
             if path == "/api/query":
                 query = json.loads(self.read_body(2 * 1024 * 1024))
+                if query.get("table") == "polish_jobs" and query.get("action", "select") != "select":
+                    raise ValueError("Song polish jobs are managed by the audio processor")
                 if query.get("table") == "exports" and query.get("action", "select") != "select":
                     raise ValueError("Export records are managed by the studio")
                 if query.get("table") == "split_jobs" and query.get("action") in {"insert", "upsert"} and not capabilities()["ready"]:
@@ -290,7 +319,8 @@ class Handler(BaseHTTPRequestHandler):
         devices, server = self.server.devices, self.server
         hosts = sorted({h.rsplit(":", 1)[0] for h in server.allowed_hosts} - {"localhost", "127.0.0.1"})
         port = server.https_port
-        lan = [h for h in hosts if not h.endswith(".ts.net") and not h.startswith("100.") and h[0].isdigit()]
+        primary = primary_address()
+        lan = sorted((h for h in hosts if not h.endswith(".ts.net") and not h.startswith("100.") and h[0].isdigit()), key=lambda h: (h != primary, h))
         return {
             "code": devices.code[:4] + "-" + devices.code[4:],
             "devices": devices.listing(),
@@ -308,14 +338,36 @@ class Handler(BaseHTTPRequestHandler):
             return self.file(self.server.store.root / "tls/ScrewShop.mobileconfig")
         if path == "/api/status":
             paired = self.authenticated()
-            return self.json({"project": "ScrewShop", "paired": paired, "local": self.is_local(), "secure": self.is_secure() or self.is_local(), "storage": "local", "worker": capabilities() if paired else None, "export_formats": (["wav", "mp3"] if mp3_available() else ["wav"]) if paired else []})
+            return self.json({"project": "ScrewShop", "paired": paired, "local": self.is_local(), "secure": self.is_secure() or self.is_local(), "storage": "local", "worker": capabilities() if paired else None, "polish": audio_polish.capabilities() if paired else None, "export_formats": (["wav", "mp3"] if mp3_available() else ["wav"]) if paired else []})
         if not self.is_local() and not self.is_secure():
             # Plain Wi-Fi HTTP only hands out the iPhone certificate profile; everything else moves to HTTPS.
             return self.https_redirect()
+        if path == "/api/qr":
+            if not self.is_local():
+                return self.json({"error": {"message": "QR codes are shown on the ScrewShop computer"}}, 403)
+            overview = self.device_overview()
+            which = parse_qs(urlsplit(self.path).query).get("link", [""])[0]
+            url = {"profile": (overview["profile_links"] or [None])[0], "studio": (overview["phone_links"] or [None])[0], "friends": overview["tailscale_link"]}.get(which)
+            if not url:
+                return self.json({"error": {"message": "No link for that yet"}}, 404)
+            buffer = io.BytesIO()
+            segno.make(url, error="m").save(buffer, kind="svg", scale=6, border=3, dark="#000000", light="#ffffff", title=url)
+            body = buffer.getvalue()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path == "/api/devices":
             if not self.is_local():
                 return self.json({"error": {"message": "Manage devices from the computer running ScrewShop"}}, 403)
             return self.json({"data": self.device_overview(), "error": None})
+        if path == "/api/polish":
+            if not self.authenticated():
+                return self.json({"error": {"message": "Pair this device first"}}, 401)
+            return self.json({"data": audio_polish.jobs(self.server.store), "error": None})
         if path.startswith("/downloads/"):
             if not self.authenticated():
                 return self.json({"error": {"message": "Pair this device first"}}, 401)
@@ -387,7 +439,7 @@ class Handler(BaseHTTPRequestHandler):
                         break
                     self.wfile.write(chunk)
                     remaining -= len(chunk)
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
 
     def log_message(self, fmt, *args):
@@ -396,10 +448,25 @@ class Handler(BaseHTTPRequestHandler):
             print("Local request failed", flush=True)
 
 
+class LocalHTTPServer(ThreadingHTTPServer):
+    def server_close(self):
+        processor = getattr(self, "polish_processor", None)
+        if processor is not None:
+            self.polish_processor = None
+            processor.release()
+        super().server_close()
+
+
 def make_server(data, port=5050, lan=False, store=None, devices=None, tailscale=None, https_port=None):
     store = store or Store(data, beats_root=ROOT / "Beats" if Path(data).resolve() == (ROOT / "data").resolve() else None)
     (store.beats_root / "sound packs").mkdir(parents=True, exist_ok=True)
-    server = ThreadingHTTPServer(("0.0.0.0" if lan else "127.0.0.1", port), Handler)
+    # Exported MP3s also land in ScrewShop/mp3s (test/temporary libraries keep their own folder).
+    if not hasattr(store, "mp3_root"):
+        store.mp3_root = ROOT / "mp3s" if Path(data).resolve() == (ROOT / "data").resolve() else store.root / "mp3s"
+    # Deleted items go to ScrewShop/Deleted Files (test/temporary libraries keep their own folder).
+    if not hasattr(store, "trash_root"):
+        store.trash_root = ROOT / "Deleted Files" if Path(data).resolve() == (ROOT / "data").resolve() else store.root / "Deleted Files"
+    server = LocalHTTPServer(("0.0.0.0" if lan else "127.0.0.1", port), Handler)
     server.daemon_threads = True
     server.store = store
     if devices is None:
@@ -420,6 +487,7 @@ def make_server(data, port=5050, lan=False, store=None, devices=None, tailscale=
     server.tailscale_name = (tailscale or {}).get("name")
     server.tailscale_cert = None
     server.https_port = https_port
+    server.polish_processor = audio_polish.attach(store)
     return server
 
 
@@ -472,11 +540,33 @@ def main():
             print(f"Friends on Tailscale: https://{tailscale['name']}:{args.https_port}/barwork", flush=True)
     stop = threading.Event()
     threading.Thread(target=worker, args=(server.store, stop), daemon=True).start()
+    if args.lan:
+        def follow_addresses():
+            known = set(local_addresses())
+            while not stop.wait(30):
+                try:
+                    current = set(local_addresses())
+                    new = current - known
+                    if not new:
+                        continue
+                    for s in (server, secure_server):
+                        if s:
+                            s.allowed_hosts |= {f"{ip}:{s.server_port}" for ip in new}
+                    if secure_server:
+                        # Same CA (the iPhone's profile stays valid); a new server certificate that names the new address.
+                        tls = prepare(server.store.root, extra_names=[tailscale["name"]] if tailscale and tailscale.get("name") else [], extra_ips=(tailscale or {}).get("ips") or [])
+                        context.load_cert_chain(tls / 'server.pem', tls / 'server-key.pem')
+                    known = current
+                    print("New network address " + ", ".join(sorted(new)) + ": phone links in Settings are updated.", flush=True)
+                except Exception as exc:
+                    print("Could not follow the new network address: " + str(exc), flush=True)
+        threading.Thread(target=follow_addresses, daemon=True).start()
     print(f"ScrewShop: http://localhost:{args.port}/barwork", flush=True)
     print(f"Local files: {server.store.root}", flush=True)
     print(capabilities()["message"], flush=True)
     if args.lan:
-        print("Phone addresses: " + ", ".join("http://" + h + "/barwork" for h in sorted(server.allowed_hosts) if not h.startswith(("localhost", "127."))), flush=True)
+        phone = [h.rsplit(":", 1)[0] for h in sorted(server.allowed_hosts) if h[0].isdigit() and not h.startswith("127.")]
+        print("Phone (same Wi-Fi): " + ", ".join(f"https://{h}:{args.https_port or args.port}/barwork" for h in phone), flush=True)
         print("Pair phones and friends from Settings > DEVICES & FRIENDS on this computer.", flush=True)
     try:
         server.serve_forever()

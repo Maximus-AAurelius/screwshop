@@ -41,6 +41,7 @@ with tempfile.TemporaryDirectory() as temp:
             box=lane.bounding_box()
             src.drag_to(lane,target_position={'x':300,'y':box['height']/2})
             page.wait_for_function('document.querySelectorAll("[data-clip]").length==2',timeout=10000)
+            page.wait_for_function('''async()=>{const r=await ScrewShop.client.from('settings').select('*').eq('id','recording-session').maybeSingle();return r.data?.tracks?.length===2&&r.data.tracks[1].clips?.length===1}''',timeout=10000)
             s=session(); assert len(s['tracks'])==2, s
             loopclip=s['tracks'][1]['clips'][0]; bpm=s['bpm']; beatlen=60/bpm
             assert abs(loopclip['start']/beatlen-round(loopclip['start']/beatlen))<1e-6, 'drop not snapped'

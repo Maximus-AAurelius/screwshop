@@ -48,11 +48,16 @@ window.StudioWorkspace = class {
     }
   }
   mountLibrary(host) {
-    host.innerHTML='<header class="sl-heading"><h3>SOUND LIBRARY</h3><button data-close-library aria-label="Close sound library">&times;</button></header><p>Local files &middot; drag onto a track, pad, or key</p><div class="sl-actions"><button data-import>IMPORT FILES</button><button data-folder>IMPORT FOLDER</button></div><input class="sl-search" aria-label="Search sound library" placeholder="Search your sounds..."><div class="sl-tree"></div>';
+    host.innerHTML='<header class="sl-heading"><h3>SOUND LIBRARY</h3><button data-close-library aria-label="Close sound library">&times;</button></header><p>Local files &middot; drag onto a track, pad, or key</p><div class="sl-actions"><button data-import>IMPORT FILES</button><button data-folder>IMPORT FOLDER</button></div><input class="sl-search" aria-label="Search sound library" placeholder="Search your sounds..."><div class="sl-filters"><select data-library-type aria-label="Filter Studio sounds"><option>All sounds</option><option>Imports</option><option>Versions</option><option>Stems</option><option>Packs</option><option>Recordings</option></select><select data-library-sort aria-label="Sort Studio sounds"><option value="name">Name A–Z</option><option value="newest">Newest first</option><option value="oldest">Oldest first</option></select></div><p class="sl-result-count" role="status"></p><div class="sl-tree"></div>';
     host.querySelector('[data-close-library]').onclick=()=>this.app.setState({studioShowSources:false});
     host.querySelector('[data-import]').onclick=()=>this.importFiles(false);
     host.querySelector('[data-folder]').onclick=()=>this.importFiles(true);
-    host.querySelector('.sl-search').oninput=()=>this.renderLibrary();
+    host.querySelector('.sl-search').value=this.librarySearch||'';
+    host.querySelector('.sl-search').oninput=e=>{this.librarySearch=e.target.value;this.renderLibrary();};
+    host.querySelector('[data-library-type]').value=this.libraryFilter||'All sounds';
+    host.querySelector('[data-library-type]').onchange=e=>{this.libraryFilter=e.target.value;this.renderLibrary();};
+    host.querySelector('[data-library-sort]').value=this.librarySort||'name';
+    host.querySelector('[data-library-sort]').onchange=e=>{this.librarySort=e.target.value;this.renderLibrary();};
     host.addEventListener('dragstart',e=>{const row=e.target.closest('[data-sound]');if(!row)return; e.dataTransfer.setData('application/x-screwshop-loop',JSON.stringify(this.items[+row.dataset.sound]));e.dataTransfer.effectAllowed='copy';});
     host.addEventListener('click',e=>{
       const button=e.target.closest('button');if(!button)return;
@@ -65,30 +70,38 @@ window.StudioWorkspace = class {
   }
   renderLibrary() {
     const host=this.library;if(!host?.isConnected)return;
-    const tree=host.querySelector('.sl-tree'), opened=new Set([...tree.querySelectorAll('details[open]')].map(d=>d.dataset.folder));
-    const first=!tree.children.length, filter=host.querySelector('.sl-search').value.toLowerCase();this.items=[];
-    const row=(raw,extra='')=>{const item=this.item(raw);if(filter&&!item.name.toLowerCase().includes(filter))return '';const i=this.items.push(item)-1;
+    const tree=host.querySelector('.sl-tree');this.libraryGroups=this.libraryGroups||new Map();
+    if(!this.renderedLibrarySearch)tree.querySelectorAll('details[data-folder]').forEach(el=>this.libraryGroups.set(el.dataset.folder,el.open));
+    this.renderedLibrarySearch=this.librarySearch;
+    const filter=host.querySelector('.sl-search').value.trim().toLocaleLowerCase(),type=this.libraryFilter||'All sounds';this.items=[];
+    const sorted=rows=>[...(rows||[])].sort((a,b)=>this.librarySort==='newest'?String(b.created_at||'').localeCompare(String(a.created_at||'')):this.librarySort==='oldest'?String(a.created_at||'').localeCompare(String(b.created_at||'')):String(a.name||a.kind||a.label||'').localeCompare(String(b.name||b.kind||b.label||''),undefined,{numeric:true}));
+    const row=(raw,extra='',kind='Stems',group='')=>{const item=this.item(raw);item.name=item.name||item.kind||item.label||'Untitled';if(type!=='All sounds'&&type!==kind)return '';if(filter&&![item.name,item.note,group,kind].join(' ').toLocaleLowerCase().includes(filter))return '';const i=this.items.push(item)-1;
       return '<div class="sl-file" draggable="true" data-sound="'+i+'" data-loop-url="'+this.esc(item.url)+'" data-loop-name="'+this.esc(item.name)+'"><button data-preview="'+i+'" aria-label="Preview '+this.esc(item.name)+'">&#9654;</button><span title="'+this.esc(item.note||item.name)+'">'+this.esc(item.name)+(item.sample?'<small>sample candidate</small>':'')+'</span><button data-add-sound="'+i+'" aria-label="Add '+this.esc(item.name)+' to track">+</button>'+extra+'</div>';};
-    const folder=(id,name,body,extra='')=>'<details data-folder="'+this.esc(id)+'" '+(first||filter||opened.has(id)?'open':'')+'><summary>'+this.esc(name)+'</summary>'+extra+(body||'<p class="sl-empty">No sounds here yet.</p>')+'</details>';
+    const folder=(id,name,body,extra='')=>{if(!body&&(filter||type!=='All sounds'))return '';const count=(body.match(/class="sl-file"/g)||[]).length;return '<details data-folder="'+this.esc(id)+'" '+(filter||this.libraryGroups.get(id)!==false?'open':'')+'><summary>'+this.esc(name)+'<small class="sl-heading-count">'+count+'</small></summary>'+extra+(body||'<p class="sl-empty">No sounds here yet.</p>')+'</details>';};
     const imports=this.app.state.library||[];
-    let html=folder('imports','BEATS & IMPORTS',imports.map((f,i)=>row(f,'<div class="sl-split"><button data-quick="'+i+'">QUICK</button><button data-full="'+i+'">FULL</button><small>'+this.esc(this.app.state.splitJobs[f.id]?.error||this.app.state.splitJobs[f.id]?.status||'')+'</small></div>')).join(''));
+    const isVersion=f=>f.source_kind==='screw-version'||/\/[a-f0-9-]{25,}\.(wav|webm|m4a|mp3)$/i.test(f.storage_path||'');
+    const importRows=rows=>sorted(rows).map(f=>{const i=imports.indexOf(f);return row(f,'<div class="sl-split"><button data-quick="'+i+'">QUICK</button><button data-full="'+i+'">FULL</button><small>'+this.esc(this.app.state.splitJobs[f.id]?.error||this.app.state.splitJobs[f.id]?.status||'')+'</small></div>',isVersion(f)?'Versions':'Imports');}).join('');
+    let html=folder('imports','IMPORTED AUDIO',importRows(imports.filter(f=>!isVersion(f))))+folder('versions','SAVED VERSIONS',importRows(imports.filter(isVersion)));
     for(const type of ['split','pack']) {
       let contents=this.folders.filter(f=>f.folder_type===type).map(f=>folder(f.id,f.name+(f.mode?' / '+f.mode.toUpperCase():''),
-        f.files.filter(x=>!x.sample).map(x=>row(x)).join('')+(f.files.some(x=>x.sample)?folder(f.id+'samples','SAMPLES',f.files.filter(x=>x.sample).map(x=>row(x)).join('')):''),type==='split'?'<button class="sl-save-pack" data-pack="'+this.esc(f.id)+'">NAME & SAVE PACK</button>':'' )).join('');
+        sorted(f.files).filter(x=>!x.sample).map(x=>row(x,'',type==='pack'?'Packs':'Stems',f.name)).join('')+((f.files||[]).some(x=>x.sample)?folder(f.id+'samples','SAMPLES',sorted(f.files).filter(x=>x.sample).map(x=>row(x,'',type==='pack'?'Packs':'Stems',f.name)).join('')):''),type==='split'?'<button class="sl-save-pack" data-pack="'+this.esc(f.id)+'">NAME & SAVE PACK</button>':'' )).join('');
       // Existing split revisions remain available even if created before folder indexing.
-      if(type==='split') {const indexed=new Set(this.folders.map(f=>f.beat_id));const legacy=(this.app.state.allStems||[]).filter(x=>!indexed.has(x.beatId));const ids=[...new Set(legacy.map(x=>x.beatId))];contents+=ids.map(id=>folder('legacy-'+id,legacy.find(x=>x.beatId===id).trackName,legacy.filter(x=>x.beatId===id).map(x=>row({...x,name:x.kind})).join(''))).join('');}
+      if(type==='split') {const indexed=new Set(this.folders.map(f=>f.beat_id));const legacy=(this.app.state.allStems||[]).filter(x=>!indexed.has(x.beatId));const ids=[...new Set(legacy.map(x=>x.beatId))];contents+=ids.map(id=>folder('legacy-'+id,legacy.find(x=>x.beatId===id).trackName,sorted(legacy.filter(x=>x.beatId===id)).map(x=>row({...x,name:x.kind},'','Stems',x.trackName)).join(''))).join('');}
       html+=folder(type,type==='split'?'SPLITZ':'PACKS',contents);
     }
-    html+=folder('takes','RECORDINGS',this.takes.map(t=>row({name:t.label||'Recording',bucket:'takes',storage_path:t.storage_path})).join(''));
-    tree.innerHTML=html;
+    html+=folder('takes','RECORDINGS',sorted(this.takes).map(t=>row({name:t.label||'Recording',bucket:'takes',storage_path:t.storage_path},'','Recordings')).join(''));
+    tree.innerHTML=html||'<p class="sl-empty">No matching sounds. Try another search or filter.</p>';
+    host.querySelector('.sl-result-count').textContent=this.items.length+' matching '+(this.items.length===1?'sound':'sounds');
+    tree.querySelectorAll('details[data-folder]').forEach(el=>{el.querySelector('summary').onclick=()=>{if(!this.librarySearch)this.libraryGroups.set(el.dataset.folder,!el.open);};el.ontoggle=()=>{if(el.isConnected&&!this.librarySearch)this.libraryGroups.set(el.dataset.folder,el.open);};});
   }
   async importFiles(directory) {
     const input=document.createElement('input');input.type='file';input.multiple=true;input.accept='audio/*,.wav,.mp3,.m4a,.flac';if(directory)input.webkitdirectory=true;
     input.onchange=async()=>{try{const files=[...input.files].filter(f=>/\.(wav|mp3|m4a|flac|ogg|aac|webm|aiff?)$/i.test(f.name));const items=[];
-      for(const file of files)items.push(await this.app.studio.uploadFile(file));
+      if(!files.length){this.notify('Choose an audio file such as WAV, MP3, M4A or FLAC.');return;}
+      for(const file of files){this.message?.('Importing '+(items.length+1)+' of '+files.length+': '+file.name+'...');items.push(await this.app.studio.uploadFile(file));}
       if(directory&&items.length)await this.checked(this.app.sb.from('settings').upsert({id:'sound-pack-'+window.ScrewShop.id(),folder_type:'pack',name:input.files[0].webkitRelativePath.split('/')[0],files:items}));
-      await this.app.loadLibrary();await this.refreshLibrary();this.notify('Imported '+items.length+' audio files locally.');
-    }catch(e){this.notify('Import failed: '+e.message);}};input.click();
+      await this.app.loadLibrary();await this.refreshLibrary();this.message?.('Imported '+items.length+' audio files. Press the scissors button beside a sound to snip it onto a pad.');this.notify('Imported '+items.length+' audio files locally.');
+    }catch(e){this.message?.('Import failed: '+e.message,true);this.notify('Import failed: '+e.message);}};input.click();
   }
   async namePack(id) {
     const name=prompt('Name this sound pack:',this.folders.find(f=>f.id===id)?.name||'My pack');if(!name?.trim())return;

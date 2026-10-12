@@ -9,7 +9,8 @@ const defaults = () => ({id:uid(),name:'Untitled beat',bpm:82,swing:0,grid:4,qua
 window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
   constructor(app) {
     super(app); this.project=defaults();this.history=[];this.future=[];this.held=new Map();this.inflight=new Map();this.prepared=new Map();this.assignmentTokens=new Map();
-    this.ui={width:240,library:true,sequence:true,height:250,view:'pads',steps:16,page:0,roll:false};this.favorites=[];this.chops=[];this.beats=[];this.kits=[];this.selected=0;this.status='Loading…';
+    this.pressTokens=new Map();this.pendingPresses=new Set();this.midiPedals=new Map();this.liveHits=new Map();
+    this.ui={width:240,library:false,sequence:true,height:250,view:'pads',steps:16,page:0,roll:false};this.favorites=[];this.chops=[];this.beats=[];this.kits=[];this.selected=0;this.status='Loading…';
     this.onComputer=e=>this.computer(e);document.addEventListener('keydown',this.onComputer);document.addEventListener('keyup',this.onComputer);
     this.onBlur=()=>this.panic();window.addEventListener('blur',this.onBlur);
     this.scheduler=setInterval(()=>this.schedule(),25);
@@ -36,6 +37,7 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
       const legacyPads=await this.checked(this.app.sb.from('pads').select('*'));
       for(const row of legacyPads||[])if(row.pad_index<16&&!this.project.slots[row.pad_index])this.project.slots[row.pad_index]={name:row.label||'Pad '+(row.pad_index+1),url:this.app.studio.url('stems',row.storage_path),storage_path:row.storage_path,bucket:'stems',start:0};
     }
+    this.ui.library=false;if(this.ui.view==='library')this.ui.view='pads';
     this.syncLegacy();this.ready=true;const prepared=await this.prepare();if(prepared)this.status='Ready';this.draw();
   }
   // The library polls every 5 s. Redraw only when something changed, so open menus, search focus and drags survive.
@@ -43,6 +45,7 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
   drawLibraryIfChanged(){const signature=JSON.stringify([this.folders,this.takes,this.beats,this.kits,this.app.state.library,this.app.state.allStems,this.app.state.splitJobs]);
     if(signature===this.samplerSignature)return;if(this.dragging){this.libraryStale=true;return;}this.samplerSignature=signature;this.drawLibrary();}
   save(){
+    clearTimeout(this.noteSaveTimer);this.noteSaveTimer=null;
     if(!this.ready)return Promise.resolve();this.status='Saving…';this.updateStatus();
     const body={id:'sampler-project',version:1,project:this.snapshot(),ui:clone(this.ui),favorites:[...this.favorites],chops:clone(this.chops),volume:this.volume,previewVolume:this.previewVolume??.5};
     const revision=this.saveRevision=(this.saveRevision||0)+1;
@@ -77,6 +80,22 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
     }catch(e){this.message('Could not load '+item.name+': '+e.message+'. Choose another file or retry.',true);throw e;}
     finally{this.host?.querySelector('[data-dest="'+lane+'"]')?.classList.remove('loading');}
   }
+  async loadSongToPad(raw,index){
+    if(!Number.isInteger(index)||index<0||index>=18)throw Error('Choose a pad or keyboard instrument.');
+    if(!this.ready)throw Error('Wait for the sampler to finish loading.');
+    if(this.recording||this.playing)throw Error('Stop sampler playback or recording before loading a sound.');
+    if(!raw?.url&&!raw?.storage_path)throw Error('Choose a song or sound with an audio file.');
+    const bucket=raw.bucket||(raw.table==='takes'?'takes':raw.table==='stems'||raw.stem?'stems':'beats');
+    const item={...raw,bucket,name:raw.name||raw.label||raw.kind||'Song sound'};
+    // Explicit trims from stems and saved chops survive the handoff from SONGS.
+    if(item.start!=null&&!Number.isFinite(item.start)||item.end!=null&&!Number.isFinite(item.end))throw Error('This sound has an invalid trim.');
+    const buffer=await this.decode(this.item(item)),from=item.start??0,to=item.end??buffer.duration;
+    if(from<0||to<=from||to>buffer.duration+.001)throw Error('Choose a trim inside this sound.');
+    await this.assign(index,item);
+    this.ui.bank=index>=8&&index<16?1:0;this.ui.view='pads';this.project.mode=index>=16?String(index):'pads';await this.save();this.app.setState({tab:'packs'});this.draw();
+    const trimmed=item.start==null&&item.end==null&&buffer.duration>this.barSeconds(this.maxBars)+.05;
+    this.notify('Loaded '+item.name+' onto '+(index<16?'Pad '+(index+1):'Instrument '+(index-15))+'.'+(trimmed?' Using the first '+this.maxBars+' bars with sound. The whole song stays in SONGS; use Whole sound or Start/End to change the trim.':''));return this.slots[index];
+  }
   // A bar = 4 beats. At 82 BPM one bar is 2.93 s, so 4 bars is 11.7 s.
   get maxBars(){return 4;}
   barSeconds(bars){return bars*4*60/this.project.bpm;}
@@ -103,26 +122,77 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
     const v={src:source,gain,pan,lane,rate,level,choke:s.choke||0,when,ctx,released:false};
     if(v.choke)for(const old of registry)if(old.choke===v.choke&&old.when<=when)this.endVoice(old,when,.005);
     if(lane<16&&s.mono!==false)for(const old of registry)if(old!==v&&old.lane===lane&&old.when<=when)this.endVoice(old,when,.005);
-    registry.add(v);source.onended=()=>{registry.delete(v);source.disconnect();gain.disconnect();pan.disconnect();};
-    source.start(when,offset);
-    const natural=(end-start)/rate;
+    registry.add(v);source.onended=()=>{registry.delete(v);if(v.token&&this.held.get(v.token)===v){this.held.delete(v.token);this.queueLiveUI();}source.disconnect();gain.disconnect();pan.disconnect();};
+    // Duration is in source seconds: pitch bend must never play beyond the selected trim.
+    if(source.loop)source.start(when,offset);else source.start(when,offset,end-start);
+    const natural=(end-start)/source.playbackRate.value;
     if(duration!=null||!source.loop&&!s.gate){let length=s.gate||s.loop?(duration??natural):natural;if(!source.loop)length=Math.min(length,natural);const fade=Math.min(s.release||.005,.04,length/2);this.endVoice(v,when+length-fade,fade);}
     else if(!source.loop)this.endVoice(v,when+natural-.003,.003);
     return v;
   }
   endVoice(v,time,release){if(!v||v.stopTime!=null&&v.stopTime<=time)return;v.stopTime=time;const p=v.gain.gain;try{if(p.cancelAndHoldAtTime)p.cancelAndHoldAtTime(time);else p.cancelScheduledValues(time);p.setTargetAtTime(.00001,time,Math.max(.001,release/4));v.src.stop(time+release);}catch(_){}}
-  async press(lane,note=60,velocity=100,token='pad:'+lane){
+  inputClock(ctx,receivedTime){return ctx.currentTime+(Number.isFinite(receivedTime)?clamp((receivedTime-performance.now())/1000,-1,0):0);}
+  async press(lane,note=60,velocity=100,token='pad:'+lane,meta={}){
     if(this.pendingSound){await this.assign(lane,this.pendingSound);return;}
-    this.selected=lane;const ctx=this.context();this.releaseToken(token,true);const pending={};this.pressTokens=this.pressTokens||new Map();this.pressTokens.set(token,pending);await ctx.resume();if(this.pressTokens.get(token)!==pending)return;
-    const v=this.voice(lane,note,velocity,ctx.currentTime);if(v)this.held.set(token,v);
-    (lane>=16?[this.host?.querySelector('[data-dest="'+lane+'"][data-note="'+note+'"]')]:[...this.host?.querySelectorAll('[data-dest="'+lane+'"]')||[]]).forEach(el=>el?.classList.add('hit'));
-    this.show?.(lane<16?'P'+(lane+1):noteName(note).replace('#','').slice(0,3));this.flashLane(lane,true);this.capture(lane,note,velocity,token);this.drawEditor();
+    const ctx=this.context();this.releaseToken(token,true,meta);
+    const pending={lane,note,velocity,token,scope:meta.scope,ctx,slot:this.slots[lane],inputAt:Number.isFinite(meta.receivedTime)?meta.receivedTime:performance.now(),captureAt:ctx.state==='running'?this.inputClock(ctx,meta.receivedTime):null,releasedAt:null};
+    this.pressTokens.set(token,pending);
+    // No promise hop in the playing path: short Note On/Off pairs must both reach audio.
+    if(ctx.state==='running'){this.startPress(pending,ctx.currentTime);return;}
+    this.pendingPresses.add(pending);
+    if(!this.resumeJob){
+      this.resumeJob=ctx.resume().then(()=>{
+        const queued=[...this.pendingPresses].sort((a,b)=>a.inputAt-b.inputAt);this.pendingPresses.clear();
+        const origin=queued[0]?.inputAt,at=ctx.currentTime+.004;
+        for(const p of queued)this.startPress(p,at+(p.inputAt-origin)/1000);
+      }).catch(e=>{for(const p of this.pendingPresses)if(this.pressTokens.get(p.token)===p)this.pressTokens.delete(p.token);this.pendingPresses.clear();this.message('Audio could not start: '+e.message,true);}).finally(()=>{this.resumeJob=null;});
+    }
+    return this.resumeJob;
   }
-  releaseToken(token,force=false){
-    this.pressTokens?.delete(token);
-    const v=this.held.get(token);if(v){if(this.sustain&&!force){v.released=true;return;}if(this.slots[v.lane]?.gate||this.slots[v.lane]?.loop)this.endVoice(v,v.ctx.currentTime,this.slots[v.lane]?.release||.03);this.held.delete(token);}
-    const held=this.recordHeld?.get(token);if(held){held.len=Math.max(1/64,Math.min(this.pattern.beats,((this.context().currentTime-this.origin)*this.project.bpm/60)-held.absolute));delete held.absolute;this.recordHeld.delete(token);this.changed();this.drawSequence();}
-    this.host?.querySelectorAll('.hit').forEach(e=>e.classList.remove('hit'));
+  startPress(p,when){
+    if(p.cancelled||p.slot!==this.slots[p.lane]||!p.slot)return;
+    const current=this.pressTokens.get(p.token)===p;
+    const duration=p.releasedAt!=null&&(p.slot.gate||p.slot.loop)?Math.max(.003,(p.releasedAt-p.inputAt)/1000):null;
+    const v=this.voice(p.lane,p.note,p.velocity,when,p.ctx,this.bus,duration);if(!v)return;
+    v.note=p.note;v.token=p.token;v.scope=p.scope;
+    v.released=!!p.sustained;
+    if(current&&p.releasedAt==null)this.held.set(p.token,v);
+    if(current)this.pressTokens.delete(p.token);
+    this.selected=p.lane;this.queueLiveUI(p.lane,p.note,p.token);
+    const captureAt=p.captureAt??when;this.capture(p.lane,p.note,p.velocity,p.token,captureAt);
+    if(p.releasedAt!=null)this.finishCapture(p.token,captureAt+Math.max(0,(p.releasedAt-p.inputAt)/1000));
+  }
+  releaseToken(token,force=false,meta={}){
+    const pending=this.pressTokens.get(token);
+    if(pending){const pedal=pending.scope!=null?this.midiPedals.get(pending.scope):this.sustain;
+      if(pedal&&!force&&(pending.slot?.gate||pending.slot?.loop)){pending.sustained=true;return;}
+      pending.releasedAt=Number.isFinite(meta.receivedTime)?meta.receivedTime:performance.now();this.pressTokens.delete(token);}
+    const v=this.held.get(token);if(v){
+      const pedal=v.scope!=null?this.midiPedals.get(v.scope):this.sustain;
+      if(pedal&&!force&&(this.slots[v.lane]?.gate||this.slots[v.lane]?.loop)){v.released=true;this.queueLiveUI();return;}
+      if(this.slots[v.lane]?.gate||this.slots[v.lane]?.loop)this.endVoice(v,Math.max(v.when,this.inputClock(v.ctx,meta.receivedTime)),this.slots[v.lane]?.release||.03);
+      this.held.delete(token);
+    }
+    this.finishCapture(token,this.inputClock(this.context(),meta.receivedTime));this.queueLiveUI();
+  }
+  finishCapture(token,time){const held=this.recordHeld?.get(token);if(!held)return;
+    held.len=Math.max(1/64,Math.min(this.pattern.beats,(time-this.origin-(this.project.latency||0)/1000)*this.project.bpm/60-held.absolute));delete held.absolute;this.recordHeld.delete(token);this.queueNoteSave();}
+  queueNoteSave(){this.lastRender=null;this.sequenceDirty=true;this.queueLiveUI();if(!this.noteSaveTimer)this.noteSaveTimer=setTimeout(()=>{this.noteSaveTimer=null;this.changed();},100);}
+  queueLiveUI(lane,note,token){
+    if(this.disposed)return;
+    if(lane!=null){this.liveHits.set(token,{lane,note,until:performance.now()+100});this.liveLane=lane;this.liveNote=note;}
+    if(this.liveFrame)return;this.liveFrame=requestAnimationFrame(()=>{this.liveFrame=null;this.flushLiveUI();});
+  }
+  flushLiveUI(){
+    if(this.oxygenDirty){this.oxygenDirty=false;this.draw();}
+    const now=performance.now();for(const[token,h]of this.liveHits)if(h.until<=now)this.liveHits.delete(token);
+    for(const el of this.host?.querySelectorAll('[data-dest]')||[]){const lane=+el.dataset.dest,note=el.dataset.note!=null?+el.dataset.note:null;
+      const match=v=>v.lane===lane&&(lane<16||note===v.note);
+      el.classList.toggle('hit',[...this.held.values()].some(match)||[...this.liveHits.values()].some(match));}
+    if(this.liveLane!=null){this.show?.(this.liveLane<16?'P'+(this.liveLane+1):noteName(this.liveNote).replace('#','').slice(0,3));this.flashLane(this.liveLane,this.editorLane!==this.selected);this.liveLane=null;}
+    if(this.editorLane!==this.selected||this.editorSlot!==this.slots[this.selected])this.drawEditor();
+    if(this.sequenceDirty){this.sequenceDirty=false;this.drawSequence();}
+    clearTimeout(this.liveUITimer);if(this.liveHits.size)this.liveUITimer=setTimeout(()=>this.queueLiveUI(),110);
   }
   // Hitting a pad lights its row name in the sequencer, so you can see which lane that sound is.
   // A live hit also scrolls the row into view and marks it as the selected sound.
@@ -131,49 +201,57 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
     if(reveal){seq.querySelectorAll('[data-lane-select].sel').forEach(x=>x.classList.remove('sel'));el.classList.add('sel');
       const box=seq.getBoundingClientRect(),row=el.getBoundingClientRect(),bar=seq.querySelector('.sp-seq-toolbar')?.offsetHeight||0;
       if(row.top<box.top+bar)seq.scrollTop-=box.top+bar-row.top+4;else if(row.bottom>box.bottom)seq.scrollTop+=row.bottom-box.bottom+4;}
-    el.classList.remove('lane-hit');void el.offsetWidth;el.classList.add('lane-hit');
+    el.classList.add('lane-hit');
     this.laneTimers=this.laneTimers||{};clearTimeout(this.laneTimers[lane]);this.laneTimers[lane]=setTimeout(()=>el.classList.remove('lane-hit'),450);}
   triggerPad(i,time,velocity=100){return this.press(i,60,velocity);}
   keyDown(n,v=100){return this.press(+this.project.mode>=16?+this.project.mode:16,n,v,'key:'+n);}
   release(n){this.releaseToken('key:'+n);}
-  panic(){this.pressTokens?.clear();if(this.held)for(const token of this.held.keys())this.releaseToken(token,true);super.panic();this.sustain=false;}
+  panic(){this.resumeGeneration=(this.resumeGeneration||0)+1;for(const p of this.pendingPresses||[])p.cancelled=true;this.pendingPresses?.clear();this.pressTokens?.clear();if(this.held)for(const token of this.held.keys())this.releaseToken(token,true);super.panic();this.midiPedals?.clear();this.liveHits?.clear();this.sustain=false;this.queueLiveUI();}
   stop(){this.playing=false;this.recording=false;this.scheduled=new Map();this.recordHeld?.forEach((_,token)=>this.releaseToken(token,true));this.panic();this.updateStatus();}
   async start(record=false){if(this.playing){if(record){this.checkpoint();this.recording=!this.recording;}else this.stop();this.updateStatus();return;}
     if(!await this.prepare())return;const ctx=this.context();await ctx.resume();this.app.studio.halt();this.checkpoint();
     this.recording=record;this.playing=true;this.scheduled=new Map();this.origin=ctx.currentTime+.08+(record&&this.project.countIn?4*60/this.project.bpm:0);this.nextCycle=0;this.nextClick=record&&this.project.countIn?-4:0;this.recordHeld=new Map();
     if(record&&!this.project.overdub)this.pattern.events=[];this.changed();this.schedule();this.updateStatus();
   }
-  capture(lane,note,velocity,token){if(!this.recording||!this.playing)return;const absolute=(this.context().currentTime-this.origin-(this.project.latency||0)/1000)*this.project.bpm/60;if(absolute<0)return;
+  capture(lane,note,velocity,token,time=this.context().currentTime){if(!this.recording||!this.playing)return;const absolute=(time-this.origin-(this.project.latency||0)/1000)*this.project.bpm/60;if(absolute<0)return;
     const pos=((absolute%this.pattern.beats)+this.pattern.beats)%this.pattern.beats,grid=this.project.grid;
     const at=this.project.quantize?(Math.round(pos*grid)/grid)%this.pattern.beats:pos;
     const event={id:uid(),lane,note,velocity,at,len:1/grid,absolute};this.pattern.events.push(event);this.recordHeld.set(token,event);
-    const cycle=Math.floor(absolute/this.pattern.beats);if(!this.scheduled.has(cycle))this.scheduled.set(cycle,new Set());this.scheduled.get(cycle).add(event.id);this.changed();this.drawSequence();
+    const cycle=Math.floor(absolute/this.pattern.beats);if(!this.scheduled.has(cycle))this.scheduled.set(cycle,new Set());this.scheduled.get(cycle).add(event.id);this.queueNoteSave();
   }
   eventTime(e){return e.at+(Math.round(e.at*this.project.grid)%2?this.project.swing/100/this.project.grid:0);}
   schedule(){if(!this.playing)return;const ctx=this.context(),beat=60/this.project.bpm,horizon=ctx.currentTime+.12,pattern=this.pattern;
     // Schedule only the next 120 ms; edits affect the next unscheduled events.
     if(!this.scheduled)this.scheduled=new Map();
     const first=Math.max(0,Math.floor((ctx.currentTime-this.origin)/(pattern.beats*beat))),last=Math.max(first,Math.floor((horizon-this.origin)/(pattern.beats*beat)));
-    for(let cycle=first;cycle<=last;cycle++){let seen=this.scheduled.get(cycle);if(!seen){seen=new Set();this.scheduled.set(cycle,seen);}for(const e of pattern.events){if(e.at>=pattern.beats)continue;const at=this.origin+(cycle*pattern.beats+this.eventTime(e))*beat;if(at>=ctx.currentTime-.01&&at<=horizon&&!seen.has(e.id)){seen.add(e.id);this.voice(e.lane,e.note,e.velocity,Math.max(at,ctx.currentTime),ctx,this.bus,e.len*beat);setTimeout(()=>{this.flashLane(e.lane);const el=this.host?.querySelector('[data-dest="'+e.lane+'"]');el?.classList.add('hit');setTimeout(()=>el?.classList.remove('hit'),90);},Math.max(0,(at-ctx.currentTime)*1000));}}}
+    for(let cycle=first;cycle<=last;cycle++){let seen=this.scheduled.get(cycle);if(!seen){seen=new Set();this.scheduled.set(cycle,seen);}for(const e of [...pattern.events].sort((a,b)=>this.eventTime(a)-this.eventTime(b))){if(e.at>=pattern.beats)continue;const at=this.origin+(cycle*pattern.beats+this.eventTime(e))*beat;if(at>=ctx.currentTime-.01&&at<=horizon&&!seen.has(e.id)){seen.add(e.id);this.voice(e.lane,e.note,e.velocity,Math.max(at,ctx.currentTime),ctx,this.bus,e.len*beat);setTimeout(()=>{this.flashLane(e.lane);const el=this.host?.querySelector('[data-dest="'+e.lane+'"]');el?.classList.add('hit');setTimeout(()=>el?.classList.remove('hit'),90);},Math.max(0,(at-ctx.currentTime)*1000));}}}
     for(const cycle of this.scheduled.keys())if(cycle<first)this.scheduled.delete(cycle);
     while(this.origin+this.nextClick*beat<=horizon){const n=this.nextClick++,time=this.origin+n*beat;if(time<ctx.currentTime-.01)continue;if(this.project.metro||n<0){const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=n%4===0?1200:800;g.gain.setValueAtTime(.08,time);g.gain.exponentialRampToValueAtTime(.001,time+.035);o.connect(g);g.connect(ctx.destination);o.start(time);o.stop(time+.04);o.onended=()=>{o.disconnect();g.disconnect();};}}
   }
-  midi(data){if(this.app.state.tab!=='packs')return;const [status,a,b=0]=data,type=status&240,channel=status&15;
+  midi(data,meta={}){if(this.app.state.tab!=='packs')return;const [status,a,b=0]=data,type=status&240,channel=status&15;
     if(this.padWalk&&type===144&&b){this.learnPadHit(channel,a);return;}
     if(this.learning&&((type===144&&b)||type===176)){this.checkpoint();this.mapControl(this.learning,{type,channel,number:a});this.learning=null;this.changed();this.draw();return;}
     const mapped=Object.entries(this.project.maps).find(([,m])=>m.channel===channel&&m.number===a&&(m.type===type||(m.type===144&&type===128)));
-    const token='midi:'+channel+':'+a;
+    const scope='midi:'+(meta.portId!=null?meta.portId+':':'')+channel,token=scope+':'+a;meta={...meta,scope};
     if(type===224){this.bendTo(((b*128+a)-8192)/8192*2);return;}
     if(type===176&&!mapped&&a===1){this.modTo(b/127);return;}
     if(type===176&&!mapped&&a===7){this.volume=b/127;this.applyGain();this.show(b);return;}
-    if(type===128||type===144&&!b){this.releaseToken(token);return;}
-    if(type===176&&a===64){this.sustain=b>=64;if(!this.sustain)for(const[t,v]of this.held)if(v.released)this.releaseToken(t,true);return;}
-    if(type===176&&(a===120||a===123)){this.panic();return;}
+    if(type===128||type===144&&!b){this.releaseToken(token,false,meta);return;}
+    if(type===176&&a===64){this.midiPedals.set(scope,b>=64);this.sustain=[...this.midiPedals.values()].some(Boolean);if(b<64){
+      for(const[t,v]of this.held)if((v.scope===scope||v.scope==null&&!this.sustain)&&v.released)this.releaseToken(t,true,meta);
+      for(const[t,p]of this.pressTokens)if((p.scope===scope||p.scope==null&&!this.sustain)&&p.sustained)this.releaseToken(t,true,meta);
+    }return;}
+    if(type===176&&(a===120||a===123)){this.silenceScope(scope,meta);return;}
     if(type===144&&b)this.heard(channel,a,mapped);
-    if(mapped){const action=mapped[0];if(action.startsWith('pad:')){const lane=+action.split(':')[1];if(b){if((lane<8?0:1)!==(this.ui.bank?1:0)){this.ui.bank=lane<8?0:1;this.draw();}this.press(lane,a,b,token);}else this.releaseToken(token);}
+    if(mapped){const action=mapped[0];if(action.startsWith('pad:')){const lane=+action.split(':')[1];if(b){if((lane<8?0:1)!==(this.ui.bank?1:0)){this.ui.bank=lane<8?0:1;this.oxygenDirty=true;}this.press(lane,a,b,token,meta);}else this.releaseToken(token,false,meta);}
       else if(action==='master'){this.volume=b/127;this.applyGain();}else if(b){if(action==='play')this.start();if(action==='record')this.start(true);if(action==='stop')this.stop();}return;}
-    if(type===144&&b&&a>=this.project.low&&a<=this.project.high){const drum=a-this.project.octave*12;if(+this.project.mode>=16)this.press(+this.project.mode,a,b,token);else if(drum>=0&&drum<16)this.press(drum,a,b,token);}
+    if(type===144&&b&&a>=this.project.low&&a<=this.project.high){const drum=a-this.project.octave*12;if(+this.project.mode>=16)this.press(+this.project.mode,a,b,token,meta);else if(drum>=0&&drum<16)this.press(drum,a,b,token,meta);}
   }
+  silenceScope(scope,meta){this.midiPedals.delete(scope);this.sustain=[...this.midiPedals.values()].some(Boolean);
+    for(const p of this.pendingPresses)if(p.scope===scope){p.cancelled=true;this.pendingPresses.delete(p);if(this.pressTokens.get(p.token)===p)this.pressTokens.delete(p.token);}
+    for(const[token,v]of this.held)if(v.scope===scope)this.releaseToken(token,true,meta);
+    for(const v of this.voices)if(v.scope===scope)this.endVoice(v,Math.max(v.when,v.ctx.currentTime),.005);
+    for(const[token,h]of this.liveHits)if(token.startsWith(scope+':'))this.liveHits.delete(token);this.queueLiveUI();}
   // One physical control = one action. Learning a note for pad 3 removes it from any other pad,
   // otherwise the first (stale) match wins and the wrong pad lights up.
   mapControl(action,m){const same=x=>x.channel===m.channel&&x.number===m.number&&(x.type===m.type||(x.type===144&&m.type===128)||(x.type===128&&m.type===144));
@@ -208,7 +286,7 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
       const signature=JSON.stringify([this.app.state.library,this.app.state.allStems,this.folders,this.takes]);if(signature!==this.libSignature){this.libSignature=signature;this.renderLibrary();}if(Date.now()-this.lastFetch>5000)this.refreshLibrary();}
   }
   updateStatus(){if(!this.host?.isConnected)return;const set=(q,t)=>{const el=this.host.querySelector(q);if(el)el.textContent=t;};
-    set('[data-status]',this.status);set('[data-midi]',this.app.state.midiDevices?.length?this.app.state.midiDevices.join(', '):navigator.requestMIDIAccess?'No MIDI connected':'MIDI unavailable in this browser — use touch or computer keys');
+    set('[data-status]',this.status);set('[data-midi]',this.app.state.midiDevices?.length?this.app.state.midiDevices.join(', '):this.app.state.midiBlocked?'MIDI blocked: allow MIDI for this site in Chrome, then press MIDI':navigator.requestMIDIAccess?'No MIDI connected: plug in the Oxygen and press MIDI':'MIDI unavailable in this browser — use touch or computer keys');
     set('[data-action="play"]',this.playing?'Stop':'Play');set('[data-action="record"]',this.recording?'Stop Record':'Record');
     if(this.playing){const pos=(this.context().currentTime-this.origin)*this.project.bpm/60;set('[data-position]',pos<0?'Count-in '+Math.ceil(-pos):'Beat '+((pos%this.pattern.beats)+1).toFixed(1));const step=Math.floor(Math.max(0,pos)%this.pattern.beats*this.project.grid);this.host.querySelectorAll('[data-step]').forEach(e=>e.classList.toggle('playhead',+e.dataset.step===step));}
     if(this.meter){this.meter.getFloatTimeDomainData(this.meterData);const peak=this.meterData.reduce((a,b)=>Math.max(a,Math.abs(b)),0);const meter=this.host.querySelector('meter');if(meter)meter.value=peak;if(peak>=.99)this.clipUntil=Date.now()+1500;set('[data-clip]',Date.now()<this.clipUntil?'CLIP':'');}
@@ -216,10 +294,10 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
   }
   button(action,label,title=label){return `<button data-action="${action}" title="${this.esc(title)}" aria-label="${this.esc(title)}">${label}</button>`;}
   draw(){const h=this.host;if(!h?.isConnected)return;const b=(...a)=>this.button(...a),p=this.project;
-    h.innerHTML=`<div class="sp-toolbar" role="toolbar" aria-label="Sampler transport">${b('library','☰','Toggle library')}<span data-midi class="sp-midi"></span>${b('midi','MIDI','Connect MIDI')}<label>BPM <input data-project="bpm" type="number" min="30" max="300" value="${p.bpm}"></label>${b('play','Play')}${b('record','Record')}${b('panic','■','All Notes Off')}<label><input data-project="metro" type="checkbox" ${p.metro?'checked':''}>Click</label><label><input data-project="countIn" type="checkbox" ${p.countIn?'checked':''}>Count-in</label><label>Master<input data-master-volume aria-label="Master volume" type="range" min="0" max="1" step=".01" value="${this.volume}"></label><span data-position></span><meter min="0" max="1" value="0" aria-label="Sampler master meter"></meter><strong data-clip></strong>${b('kit','Save Kit')}${b('beat','Save Beat')}${b('send','Send to Studio')}<span data-status role="status"></span></div>
-    <nav class="sp-mobile" aria-label="Sampler screens">${['library','pads','sequence'].map(v=>`<button data-action="view-${v}" class="${this.ui.view===v?'on':''}" aria-pressed="${this.ui.view===v}">${{library:'Library',pads:'Pads / Keys',sequence:'Sequencer'}[v]}</button>`).join('')}</nav>
-    <div class="sp-body" data-view="${this.ui.view}" style="--library-width:${this.ui.library?this.ui.width:0}px"><aside class="sp-library" ${this.ui.library?'':'hidden'}><div class="sp-library-inner"></div></aside><div class="sp-resizer" role="separator" tabindex="0" aria-label="Resize library" aria-orientation="vertical"></div>
-    <main class="sp-main"><nav class="sp-jump" aria-label="Go to part of the sampler"><span>GO TO</span>${b('jump-keys','🎹 Keyboard','Scroll up to the Oxygen keyboard and pads')}${b('jump-editor','🎚 Sample editor · '+(this.selected<16?'Pad '+(this.selected+1):'Instrument '+(this.selected-15)),'Show the trim, length and chop controls for the selected pad')}${b('sequence',(this.ui.sequence?'▾ Hide':'▴ Show')+' sequencer','Show or hide the step sequencer at the bottom')}${b('library',(this.ui.library?'◂ Hide':'▸ Show')+' library','Show or hide the sound library')}</nav><div class="sp-playing"><div class="sp-actions">${b('undo','↶','Undo')}${b('redo','↷','Redo')}<label>Keys play <select data-mode><option value="pads" ${p.mode==='pads'?'selected':''}>Pads 1–16 (drums / chops)</option><option value="16" ${p.mode==='16'?'selected':''}>Instrument 1</option><option value="17" ${p.mode==='17'?'selected':''}>Instrument 2</option></select></label><span>Repitching changes pitch and duration</span>${b('lyric-clip','✂ Chop → pad','Open the selected pad’s sound as a waveform: highlight a piece and drop it on a pad')}${b('clear','Clear assignment')}${b('copy','Copy')}${b('paste','Paste')}${b('learn','MIDI Learn selected')}${b('learn-pads',this.padWalk?'Stop learning pads':'Learn all 8 pads')}<span data-learn-status>${this.padWalk?'Hit PAD '+(this.padWalk.index+1)+' on the Oxygen…':this.learning?'Waiting for a key/control…':''}</span></div>
+    h.innerHTML=`<div class="sp-toolbar" role="toolbar" aria-label="Sampler transport">${b('songs','LOAD FROM SONGS','Load from Songs')}<span data-midi class="sp-midi"></span>${b('midi','MIDI','Connect MIDI')}<label>BPM <input data-project="bpm" type="number" min="30" max="300" value="${p.bpm}"></label>${b('play','Play')}${b('record','Record')}${b('panic','■','All Notes Off')}<label><input data-project="metro" type="checkbox" ${p.metro?'checked':''}>Click</label><label><input data-project="countIn" type="checkbox" ${p.countIn?'checked':''}>Count-in</label><label>Master<input data-master-volume aria-label="Master volume" type="range" min="0" max="1" step=".01" value="${this.volume}"></label><span data-position></span><meter min="0" max="1" value="0" aria-label="Sampler master meter"></meter><strong data-clip></strong>${b('kit','Save Kit')}${b('beat','Save Beat')}${b('send','Send to Studio')}<span data-status role="status"></span></div>
+    <nav class="sp-mobile" aria-label="Sampler screens">${['pads','sequence'].map(v=>`<button data-action="view-${v}" class="${this.ui.view===v?'on':''}" aria-pressed="${this.ui.view===v}">${{pads:'Pads / Keys',sequence:'Sequencer'}[v]}</button>`).join('')}</nav>
+    <div class="sp-body" data-view="${this.ui.view}" style="grid-template-columns:minmax(0,1fr)">
+    <main class="sp-main"><nav class="sp-jump" aria-label="Go to part of the sampler"><span>Songs, splits, packs &amp; saved beats</span>${b('jump-keys','🎹 Keyboard','Scroll up to the Oxygen keyboard and pads')}${b('jump-editor','🎚 Sample editor · '+(this.selected<16?'Pad '+(this.selected+1):'Instrument '+(this.selected-15)),'Show the trim, length and chop controls for the selected pad')}${b('sequence',(this.ui.sequence?'▾ Hide':'▴ Show')+' sequencer','Show or hide the step sequencer at the bottom')}</nav><div class="sp-playing"><div class="sp-actions">${b('undo','↶','Undo')}${b('redo','↷','Redo')}<label>Keys play <select data-mode><option value="pads" ${p.mode==='pads'?'selected':''}>Pads 1–16 (drums / chops)</option><option value="16" ${p.mode==='16'?'selected':''}>Instrument 1</option><option value="17" ${p.mode==='17'?'selected':''}>Instrument 2</option></select></label><span>Repitching changes pitch and duration</span>${b('lyric-clip','✂ Chop → pad','Open the selected pad’s sound as a waveform: highlight a piece and drop it on a pad')}${b('clear','Clear assignment')}${b('copy','Copy')}${b('paste','Paste')}${b('learn','MIDI Learn selected')}${b('learn-pads',this.padWalk?'Stop learning pads':'Learn all 8 pads')}<span data-learn-status>${this.padWalk?'Hit PAD '+(this.padWalk.index+1)+' on the Oxygen…':this.learning?'Waiting for a key/control…':''}</span></div>
     <div class="sp-oxygen">${this.oxygen()}</div><div class="sp-actions"><span>${this.esc(this.slots[p.mode==='17'?17:16]?.name||'Drop a sound on keys for an instrument')}</span><label>Octave <input data-project="octave" type="number" min="0" max="8" value="${p.octave}"></label><label>Root <input data-project="root" type="number" min="0" max="127" value="${this.slots[+p.mode]?.root??p.root}"></label><label>Range <input aria-label="Lowest MIDI note" data-project="low" type="number" min="0" max="127" value="${p.low}"><input aria-label="Highest MIDI note" data-project="high" type="number" min="0" max="127" value="${p.high}"></label></div><section class="sp-editor"></section></div>
     <section class="sp-sequence" style="height:${this.ui.sequence?this.ui.height:38}px"><div class="sp-sequence-inner"></div></section></main></div>`;
     h.onclick=e=>{const a=e.target.closest('[data-action]');if(a)this.run(()=>this.action(a.dataset.action));};
@@ -230,8 +308,8 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
     h.ondrop=e=>{this.dragDone();const dest=e.target.closest('[data-dest]');if(!dest)return;e.preventDefault();dest.classList.remove('drop-hover');this.run(async()=>{const from=e.dataTransfer.getData('application/x-screwshop-assignment'),raw=e.dataTransfer.getData('application/x-screwshop-loop');
       if(from!==''){this.checkpoint();const to=+dest.dataset.dest;if(to===+from)return;this.slots[to]=clone(this.slots[+from]);if(!e.ctrlKey)this.slots[+from]=null;this.changed();this.draw();}else if(raw){const lane=+dest.dataset.dest,item=JSON.parse(raw);await this.assign(lane,lane>=16&&dest.dataset.note?{...item,root:+dest.dataset.note}:item);}});};
     h.querySelectorAll('[data-dest]').forEach(el=>{el.onpointerdown=e=>{if(e.button!==0)return;el.setPointerCapture(e.pointerId);const lane=+el.dataset.dest,note=+(el.dataset.note||60);this.run(()=>this.press(lane,note,100,'pointer:'+e.pointerId));};el.onpointerup=el.onpointercancel=el.onlostpointercapture=e=>this.releaseToken('pointer:'+e.pointerId);});
-    const resizer=h.querySelector('.sp-resizer');resizer.onpointerdown=e=>{resizer.setPointerCapture(e.pointerId);resizer.onpointermove=ev=>{this.ui.width=clamp(ev.clientX-h.getBoundingClientRect().left,170,420);h.querySelector('.sp-body').style.setProperty('--library-width',this.ui.width+'px');};};resizer.onpointerup=()=>{resizer.onpointermove=null;this.changed();};resizer.onkeydown=e=>{if(['ArrowLeft','ArrowRight'].includes(e.key)){this.ui.width=clamp(this.ui.width+(e.key==='ArrowLeft'?-20:20),170,420);this.changed();this.draw();}};
-    this.wireOxygen(h.querySelector('.sp-oxygen'));this.drawLibrary();this.drawEditor();this.drawSequence();this.updateStatus();
+    h.oncontextmenu=e=>{const d=e.target.closest('[data-dest]');if(!d||this.helpMode)return;e.preventDefault();this.padMenu(+d.dataset.dest,e);};
+    this.wireOxygen(h.querySelector('.sp-oxygen'));this.drawEditor();this.drawSequence();this.updateStatus();
   }
   // Plain words for where a sound lives, shown before and after a drop.
   where(lane,note=null){const s=this.slots[lane],m=this.project.maps['pad:'+lane],key=note!=null?'Key '+noteName(note)+' → ':'';
@@ -241,7 +319,7 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
   oxygen(){const p=this.project,bank=this.ui.bank?1:0,drums=p.mode==='pads',lane=drums?null:+p.mode,root=lane!=null?this.slots[lane]?.root??p.root:null;
     const mark=(l,extra='')=>[this.slots[l]?'ox-loaded':'',l===this.selected?'ox-sel':'',extra].filter(Boolean).join(' ');
     const body=this.oxygenBody({low:p.octave*12,volume:this.volume,knobs:Array.from({length:8},(_,i)=>Math.round(p.mix[bank*8+i].volume*127)),knobLabel:i=>`Knob ${i+1} (pad ${bank*8+i+1} volume)`,
-      pad:i=>{const l=bank*8+i;return {attrs:`data-pad="${l}" data-dest="${l}" draggable="true"`,cls:mark(l,this.padWalk&&this.padWalk.bank===bank&&this.padWalk.index===i?'ox-learn':''),label:'Pad '+(l+1),title:this.where(l),html:`<b>${l+1}</b><span>${this.esc(this.slots[l]?.name||'empty')}</span>`};},
+      pad:i=>{const l=bank*8+i;return {attrs:`data-pad="${l}" data-dest="${l}" draggable="true"`,cls:mark(l,this.padWalk&&this.padWalk.bank===bank&&this.padWalk.index===i?'ox-learn':''),label:'Pad '+(l+1),title:this.where(l)+(this.slots[l]?' · right-click for options':''),html:`<b>${l+1}</b><span>${this.esc(this.slots[l]?.name||'empty')}</span>`};},
       key:(note,i,name)=>{if(drums)return i<16?{attrs:`data-dest="${i}" data-note="${note}"`,cls:mark(i),label:`Key ${name}: pad ${i+1}`,title:this.where(i,note),text:'P'+(i+1)}:{attrs:'disabled',cls:'ox-off',label:`Key ${name} (not used while keys play pads)`,text:''};
         return {attrs:`data-dest="${lane}" data-note="${note}"`,cls:[this.slots[lane]?'ox-loaded':'',note===root?'ox-root':''].filter(Boolean).join(' '),label:'Key '+name,title:this.where(lane,note),text:note===root?'ROOT':/^C-?\d/.test(name)?name:''};}});
     return `<div class="sp-ox-head"><strong>M-AUDIO <span>OXYGEN 25</span></strong><button data-ox="bank0" class="${bank?'':'on'}">BANK 1 · PADS 1–8</button><button data-ox="bank1" class="${bank?'on':''}">BANK 2 · PADS 9–16</button><span data-readout class="sp-ox-readout" role="status">${this.esc(this.padWalk?this.walkPrompt():this.where(this.selected))}</span><button data-ox="whats">WHAT'S THIS?</button><button data-ox="guide">TRILL GUIDE</button></div>
@@ -294,7 +372,7 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
   modTo(amount){this.mod=amount;for(const v of this.held.values())v.gain.gain.setTargetAtTime(v.level*(1-amount*.6),v.ctx.currentTime,.03);}
   // Trill's guide, reworded for what each control does in the sampler.
   steps(){const own={
-      '':['Your Oxygen 25 (MKV)','This is the sampler drawn as the real keyboard. Drag a sound from the library onto a pad or key: the bar above says exactly where it will land before you let go. Connect USB, press MIDI and allow browser MIDI access to play it from the hardware. Press NEXT for every control, or tap WHAT\'S THIS? and then any part.'],
+      '':['Your Oxygen 25 (MKV)','This is the sampler drawn as the real keyboard. LOAD FROM SONGS opens your songs, split sounds, packs and saved beats. Press ⋮ on a sound (or right-click it), choose Load onto a sampler pad and select its pad or keyboard instrument. Connect USB, press MIDI and allow browser MIDI access to play it from the hardware. Press NEXT for every control, or tap WHAT\'S THIS? and then any part.'],
       knobs:['Knobs 1-8','Knob N sets the volume of pad N in the current bank (bank 2: pads 9-16). Drag up or down, scroll, or use the arrow keys. The same volumes are the sliders in the sequencer lanes.'],
       cycle:['Loop','Sampler patterns always loop. This button turns overdub on or off: lit means each recording pass layers on top of the notes already there.'],
       stop:['Stop / PANIC','Stops the sampler pattern. SHIFT + STOP = PANIC: silences every sound that is still ringing.'],
@@ -323,11 +401,11 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
     if(a==='midi')return this.app.initMidi();if(a==='undo'||a==='redo')return this.undo(a==='redo');
     if(a==='jump-keys'){if(this.ui.view==='sequence'||this.ui.view==='library'){this.ui.view='pads';this.draw();}this.host.querySelector('.sp-playing').scrollTo({top:0,behavior:'smooth'});return;}
     if(a==='jump-editor'){if(this.ui.view!=='pads'){this.ui.view='pads';this.changed();this.draw();}const ed=this.host.querySelector('.sp-editor');ed.scrollIntoView({block:'start',behavior:'smooth'});ed.classList.remove('flash');void ed.offsetWidth;ed.classList.add('flash');return;}
-    if(a==='library'){this.ui.library=!this.ui.library;this.changed();return this.draw();}
-    if(a.startsWith('view-')){this.ui.view=a.slice(5);if(this.ui.view==='library')this.ui.library=true;this.changed();return this.draw();}
+    if(a==='songs'||a==='library'||a==='view-library'){this.stop();this.previewAudio?.pause();this.app.setState({tab:'songs'});return;}
+    if(a.startsWith('view-')){this.ui.view=a.slice(5);this.changed();return this.draw();}
     if(a==='clear'){this.checkpoint();this.panic();this.slots[this.selected]=null;this.changed();return this.draw();}
     if(a==='copy'){this.clipboard=clone(this.slots[this.selected]);return this.message('Assignment copied');}
-    if(a==='paste'&&this.clipboard){this.checkpoint();this.slots[this.selected]=clone(this.clipboard);await this.prepare();this.changed();return this.draw();}
+    if(a==='paste'&&!this.clipboard)return this.message('Nothing copied yet. Select a pad and press Copy first.');if(a==='paste'&&this.clipboard){this.checkpoint();this.slots[this.selected]=clone(this.clipboard);await this.prepare();this.changed();return this.draw();}
     if(a==='learn'){this.padWalk=null;this.learning=this.learning?null:'pad:'+this.selected;return this.draw();}
     if(a==='learn-pads')return this.startPadWalk();
     if(a==='kit')return this.saveNamed('kit');if(a==='beat')return this.saveNamed('beat');if(a==='send')return this.handoff(false);if(a==='update')return this.handoff(true);
@@ -354,7 +432,7 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
     if(el.dataset.project){const key=el.dataset.project;this.checkpoint();if(['bpm','grid','swing'].includes(key))this.stop();const ranges={bpm:[30,300],grid:[1,8],swing:[0,75],octave:[0,8],root:[0,127],low:[0,127],high:[0,127],latency:[-250,250]};this.project[key]=el.type==='checkbox'?el.checked:clamp(el.value,...(ranges[key]||[0,1000]));this.changed();if(key==='bpm')this.drawEditor();if(['octave','grid'].includes(key))this.draw();return;}
     if(el.matches('[data-mode]')){this.panic();this.project.mode=el.value;this.selected=el.value==='pads'?0:+el.value;this.changed();return this.draw();}
     if(el.dataset.sample){const slot=this.slots[this.selected];if(!slot)return;this.checkpoint();slot[el.dataset.sample]=el.type==='checkbox'?el.checked:clamp(el.value,+el.min,+el.max);
-      const b=this.buffers.get(slot.url);slot.start=clamp(slot.start,0,b.duration-.001);slot.end=clamp(slot.end,slot.start+.001,b.duration);await this.prepareSlot(slot);this.changed();this.drawEditor();return;}
+      const b=this.buffers.get(slot.url);if(!b){this.message('This pad\'s sound file is missing, so it can\'t be trimmed. Load a sound onto the pad again.',true);return;}slot.start=clamp(slot.start,0,b.duration-.001);slot.end=clamp(slot.end,slot.start+.001,b.duration);await this.prepareSlot(slot);this.changed();this.drawEditor();return;}
     if(el.dataset.mix){this.checkpoint();const [lane,key]=el.dataset.mix.split(':');this.project.mix[+lane][key]=el.type==='checkbox'?el.checked:clamp(el.value,0,1);this.changed();return;}
     if(el.matches('[data-pattern]')){this.stop();this.project.pattern=+el.value;this.ui.page=0;this.changed();return this.drawSequence();}
     if(el.matches('[data-length]')){this.stop();this.checkpoint();this.pattern.beats=clamp(el.value,1,64);this.ui.page=0;this.changed();return this.drawSequence();}
@@ -364,22 +442,28 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
     if(el.dataset.event){this.checkpoint();const event=this.pattern.events.find(x=>x.id===this.editEvent);if(event){const key=el.dataset.event;event[key]=clamp(el.value,...(key==='velocity'?[1,127]:[1/64,64]));this.changed();this.drawSequence();}}
   }
   drawLibrary(){const host=this.host?.querySelector('.sp-library-inner');if(!host)return;
-    const oldSearch=host.querySelector('[data-search]'),typing=oldSearch&&document.activeElement===oldSearch?oldSearch.selectionStart:null;
+    const oldSearch=host.querySelector('[data-search]'),typing=oldSearch&&document.activeElement===oldSearch?[oldSearch.selectionStart,oldSearch.selectionEnd]:null;
     this.openActions=this.openActions||new Set();
     const search=oldSearch?.value??this.search??'',filter=this.filter||'All';this.ui.groups=this.ui.groups||{};
+    if(!this.renderedSamplerSearch)host.querySelectorAll('details[data-group]').forEach(el=>{this.ui.groups[el.dataset.group]=el.open;});
+    this.renderedSamplerSearch=search;
     this.libraryItems=[];const seen=new Set();
-    const push=(raw,type,group)=>{let item;try{item=this.item(raw);}catch(_){return;}const key=item.url+':'+(item.start||0)+':'+(item.end||'');if(seen.has(key))return;seen.add(key);this.libraryItems.push({...item,type:raw.type||type,group});};
+    const push=(raw,type,group)=>{let item;try{item=this.item(raw);}catch(_){return;}item.name=item.name||item.kind||item.label||'Untitled';const key=item.url+':'+(item.start||0)+':'+(item.end||'');if(seen.has(key))return;seen.add(key);this.libraryItems.push({...item,type:raw.type||type,group});};
     for(const f of this.folders||[])for(const raw of f.files||[])push(raw,f.folder_type==='pack'?'Packs':raw.sample?'Chops':'Stems',f.name);
     for(const s of this.app.state.allStems||[])push({...s,name:s.name||s.kind},'Stems',s.trackName||'Separated stems');
     for(const raw of this.chops)push(raw,'Chops','Saved chops');
-    for(const raw of this.app.state.library||[])push(raw,'Samples','Imported sounds');
-    for(const t of this.takes||[])push({name:t.label||'Recording',bucket:'takes',storage_path:t.storage_path},'Samples','Recordings');
+    for(const raw of this.app.state.library||[]){const version=raw.source_kind==='screw-version'||/\/[a-f0-9-]{25,}\.(wav|webm|m4a|mp3)$/i.test(raw.storage_path||'');push({...raw,librarySource:true},version?'Versions':'Samples',version?'Saved versions':'Imported sounds');}
+    for(const t of this.takes||[])push({...t,name:t.label||'Recording',bucket:'takes'},'Recordings','Recordings');
     for(const beat of this.beats||[])this.libraryItems.push({name:beat.name,type:'Beats',group:'Saved beats',beat,url:beat.render?.url});
-    const visible=this.libraryItems.map((x,i)=>({...x,index:i})).filter(x=>x.name.toLowerCase().includes(search.toLowerCase())&&(filter==='All'||filter===x.type||filter==='Favorites'&&this.favorites.includes(x.url||x.beat?.id)));
-    const groups=[...new Set(visible.map(x=>x.group))];
-    host.innerHTML=`<div class="sp-actions">${this.button('import','Import')}${this.button('folder','Folder')}</div><input data-search aria-label="Search sounds" placeholder="Search sounds" value="${this.esc(search)}"><select data-filter aria-label="Sound filter">${['All','Packs','Samples','Stems','Chops','Beats','Favorites'].map(f=>`<option ${f===filter?'selected':''}>${f}</option>`).join('')}</select><label>Preview <input data-preview-volume aria-label="Preview volume" type="range" min="0" max="1" step=".01" value="${this.previewVolume??.5}"></label><p class="sp-hint">Drag a sound, or select it then tap a pad/key.</p>${groups.map(g=>`<details data-group="${this.esc(g)}" ${search||this.ui.groups[g]!==false?'open':''}><summary>${this.esc(g)}</summary>${visible.filter(x=>x.group===g).map(x=>`<div class="sp-sound" data-sound="${x.index}" draggable="${!!x.url}"><button data-preview="${x.index}" title="Preview" aria-label="Preview ${this.esc(x.name)}" ${x.url?'':'disabled'}>▶</button><button data-select="${x.index}" title="Select sound for assignment" ${x.url?'':'disabled'}>${this.esc(x.name)}<small>${x.type} · ${Number.isFinite(x.end)?(x.end-(x.start||0)).toFixed(1)+'s':x.duration?Number(x.duration).toFixed(1)+'s':'—'}</small></button>${x.url&&!x.beat?`<button data-chop="${x.index}" title="Chop: open as a waveform and drop pieces on pads" aria-label="Chop ${this.esc(x.name)}">✂</button>`:'<span></span>'}<button data-favorite="${x.index}" aria-label="Favorite ${this.esc(x.name)}">${this.favorites.includes(x.url||x.beat?.id)?'★':'☆'}</button>${x.beat?`<button data-open-beat="${x.index}">Open Beat</button><button data-send-beat="${x.index}">Send to Studio</button>`:''}${x.type==='Samples'&&x.id?`<div class="sp-actions"><button data-split="${x.index}:quick">Quick split</button><button data-split="${x.index}:full">Full split</button></div>`:''}</div>`).join('')}</details>`).join('')||'<p>No matching sounds. Import audio to begin.</p>'}<details><summary>Kits</summary>${(this.kits||[]).map((k,i)=>`<button data-kit="${i}">${this.esc(k.name)}</button>`).join('')}</details><p>${this.pendingSound?'Selected: '+this.esc(this.pendingSound.name):''}</p>`;
+    const visible=this.libraryItems.map((x,i)=>({...x,index:i})).filter(x=>[x.name,x.group,x.type,x.kind].join(' ').toLocaleLowerCase().includes(search.toLocaleLowerCase())&&(filter==='All'||filter===x.type||filter==='Favorites'&&this.favorites.includes(x.url||x.beat?.id)));
+    const sort=this.ui.soundSort||'name';visible.sort((a,b)=>sort==='newest'?String(b.created_at||'').localeCompare(String(a.created_at||'')):sort==='type'?a.type.localeCompare(b.type)||a.name.localeCompare(b.name):a.name.localeCompare(b.name,undefined,{numeric:true}));
+    const kits=(this.kits||[]).map((x,i)=>({...x,index:i})).filter(x=>(filter==='All'||filter==='Kits')&&x.name.toLocaleLowerCase().includes(search.toLocaleLowerCase())).sort((a,b)=>sort==='newest'?String(b.created_at||'').localeCompare(String(a.created_at||'')):a.name.localeCompare(b.name,undefined,{numeric:true}));
+    // Sort inside folders while keeping playable sound folders ahead of editable beat projects.
+    const visibleGroups=new Set(visible.map(x=>x.group)),groups=[...new Set(this.libraryItems.map(x=>x.group))].filter(g=>visibleGroups.has(g));
+    host.innerHTML=`<div class="sp-actions">${this.button('import','Import')}${this.button('folder','Folder')}</div><input data-search aria-label="Search sounds" placeholder="Search sounds" value="${this.esc(search)}"><select data-filter aria-label="Sound filter">${['All','Packs','Samples','Versions','Recordings','Stems','Chops','Beats','Kits','Favorites'].map(f=>`<option ${f===filter?'selected':''}>${f}</option>`).join('')}</select><select data-sound-sort aria-label="Sort sampler sounds">${[['name','Name A–Z'],['newest','Newest first'],['type','Type']].map(([value,label])=>`<option value="${value}" ${value===sort?'selected':''}>${label}</option>`).join('')}</select><label>Preview <input data-preview-volume aria-label="Preview volume" type="range" min="0" max="1" step=".01" value="${this.previewVolume??.5}"></label><p class="sp-hint">Drag a sound, or select it then tap a pad/key.</p><p class="sp-library-summary" role="status">${visible.length} sounds · ${kits.length} kits</p>${groups.map(g=>`<details data-group="${this.esc(g)}" ${search||this.ui.groups[g]!==false?'open':''}><summary>${this.esc(g)} <small class="sl-heading-count">${visible.filter(x=>x.group===g).length}</small></summary>${visible.filter(x=>x.group===g).map(x=>`<div class="sp-sound" data-sound="${x.index}" draggable="${!!x.url}"><button data-preview="${x.index}" title="Preview" aria-label="Preview ${this.esc(x.name)}" ${x.url?'':'disabled'}>▶</button><button data-select="${x.index}" title="Select sound for assignment" ${x.url?'':'disabled'}>${this.esc(x.name)}<small>${x.type} · ${Number.isFinite(x.end)?(x.end-(x.start||0)).toFixed(1)+'s':x.duration?Number(x.duration).toFixed(1)+'s':'—'}</small></button>${x.url&&!x.beat?`<button data-chop="${x.index}" title="Chop: open as a waveform and drop pieces on pads" aria-label="Chop ${this.esc(x.name)}">✂</button>`:'<span></span>'}<button data-favorite="${x.index}" aria-label="Favorite ${this.esc(x.name)}">${this.favorites.includes(x.url||x.beat?.id)?'★':'☆'}</button>${x.beat?`<button data-open-beat="${x.index}">Open Beat</button><button data-send-beat="${x.index}">Send to Studio</button>`:''}${x.librarySource?`<div class="sp-actions"><button data-split="${x.index}:quick">Quick split</button><button data-split="${x.index}:full">Full split</button></div>`:''}</div>`).join('')}</details>`).join('')||(!kits.length?'<p>No matching sounds. Try another search or import audio to begin.</p>':'')}${kits.length?`<details data-group="sampler-kits" ${this.ui.groups['sampler-kits']?'open':''}><summary>Kits <small class="sl-heading-count">${kits.length}</small></summary>${kits.map(k=>`<button data-kit="${k.index}">${this.esc(k.name)}</button>`).join('')}</details>`:''}<p>${this.pendingSound?'Selected: '+this.esc(this.pendingSound.name):''}</p>`;
     host.querySelector('[data-search]').oninput=e=>{this.search=e.target.value;this.drawLibrary();};
-    if(typing!=null){const input=host.querySelector('[data-search]');input.focus();input.setSelectionRange(typing,typing);}
+    if(typing!=null){const input=host.querySelector('[data-search]');input.focus();input.setSelectionRange(...typing);}
+    host.querySelector('[data-sound-sort]').onchange=e=>{this.ui.soundSort=e.target.value;this.drawLibrary();this.save().catch(()=>{});};
     host.querySelector('[data-filter]').onchange=e=>{this.filter=e.target.value;this.drawLibrary();};host.querySelector('[data-preview-volume]').oninput=e=>{this.previewVolume=+e.target.value;if(this.previewAudio)this.previewAudio.volume=this.previewVolume;};
     host.ondragend=()=>this.dragDone();
     host.ondragstart=e=>{const row=e.target.closest('[data-sound]');if(!row)return;e.stopPropagation();this.dragging=true;e.dataTransfer.setData('application/x-screwshop-loop',JSON.stringify(this.libraryItems[+row.dataset.sound]));e.dataTransfer.effectAllowed='copy';};
@@ -390,7 +474,7 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
       if(t.dataset.kit!=null){const k=this.kits[+t.dataset.kit];this.checkpoint();this.stop();Object.assign(this.project,clone(k.kit));this.project.kitId=k.id;this.syncLegacy();await this.prepare();this.changed();this.draw();this.prune();}
       if(t.dataset.split){const [i,mode]=t.dataset.split.split(':');const x=this.libraryItems[+i];await this.app.requestSplit(x,mode);this.message('Split requested. Progress appears in the sound browser.');}
     });};
-    host.querySelectorAll('details[data-group]').forEach(el=>{el.ontoggle=()=>{const name=el.dataset.group;if(!el.isConnected||this.search)return;if((this.ui.groups[name]!==false)!==el.open){this.ui.groups[name]=el.open;this.save().catch(()=>{});}};});
+    host.querySelectorAll('details[data-group]').forEach(el=>{el.querySelector('summary').onclick=()=>{if(this.search)return;this.ui.groups[el.dataset.group]=!el.open;this.save().catch(()=>{});};el.ontoggle=()=>{const name=el.dataset.group;if(!el.isConnected||this.search)return;if((this.ui.groups[name]!==false)!==el.open){this.ui.groups[name]=el.open;this.save().catch(()=>{});}};});
     host.querySelector('[data-preview-volume]').onchange=()=>this.save().catch(()=>{});
     // Keep the existing pack export workflow beside its source folder.
     for(const el of host.querySelectorAll('details[data-group]')){
@@ -405,19 +489,21 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
       if(x.url&&!x.beat){const duration=this.buffers.get(x.url)?.duration;if(duration!=null){const small=el.querySelector('[data-select] small');if(small)small.textContent=x.type+' · '+((x.end??duration)-(x.start||0)).toFixed(1)+'s';}}
       if(x.url){const actions=document.createElement('details');actions.className='sp-audio-actions';actions.open=this.openActions.has(x.url);actions.draggable=false;
         actions.innerHTML='<summary>Audio actions</summary><div class="sp-actions"><button data-clip-words>✂ Chop → pad</button><button data-to-pad>Put on selected pad</button><button data-to-studio>Add to Studio</button><a download href="'+this.esc(x.url)+'">Download</a></div>';
-        actions.ontoggle=()=>{if(actions.open)this.openActions.add(x.url);else this.openActions.delete(x.url);};
+        actions.ontoggle=()=>{if(!actions.isConnected)return;if(actions.open)this.openActions.add(x.url);else this.openActions.delete(x.url);};
         actions.querySelector('[data-clip-words]').onclick=e=>{e.stopPropagation();this.run(()=>this.openClip(x));};
         actions.querySelector('[data-to-pad]').onclick=e=>{e.stopPropagation();this.run(()=>this.assign(this.selected,x));};
-        actions.querySelector('[data-to-studio]').onclick=e=>{e.stopPropagation();this.run(async()=>{const at=this.app.studio.cursor;await this.app.studio.addClip(null,x,at);this.message(`Added ${x.name} to Studio at ${(+at||0).toFixed(1)} s. Open the STUDIO tab to arrange it.`);});};
+        actions.querySelector('[data-to-studio]').onclick=e=>{e.stopPropagation();this.run(async()=>{const at=this.app.studio.cursor,clip=await this.app.studio.addClip(null,x,at);if(clip)this.message(`Added ${x.name} to Studio at ${clip.start.toFixed(1)} s. Open the STUDIO tab to arrange it.`);});};
         el.append(actions);}
     }
   }
   dragDone(){this.dragging=false;if(this.libraryStale){this.libraryStale=false;this.drawLibraryIfChanged();}}
   preview(item){if(this.previewAudio){const stop=this.previewItem===item.url&&!this.previewAudio.paused;this.previewAudio.pause();if(stop)return;}this.previewItem=item.url;const audio=this.previewAudio=new Audio(item.url);audio.volume=this.previewVolume??.5;audio.currentTime=item.start||0;if(item.end)audio.ontimeupdate=()=>{if(audio.currentTime>=item.end)audio.pause();};audio.play().catch(e=>this.message('Preview unavailable: '+e.message,true));}
-  drawEditor(){const host=this.host?.querySelector('.sp-editor');if(!host)return;const jump=this.host.querySelector('[data-action=jump-editor]');if(jump)jump.textContent='🎚 Sample editor · '+(this.selected<16?'Pad '+(this.selected+1):'Instrument '+(this.selected-15));const s=this.slots[this.selected];if(!s){host.innerHTML='<p>Select a pad or instrument and drop a sound to edit it.</p>';return;}
+  drawEditor(){const inline=this.host?.querySelector('.sp-editor');if(inline){this.editorLane=this.selected;this.editorSlot=this.slots[this.selected];const jump=this.host.querySelector('[data-action=jump-editor]');if(jump)jump.textContent='🎚 Sample editor · '+(this.selected<16?'Pad '+(this.selected+1):'Instrument '+(this.selected-15));this.drawEditorInto(inline,this.selected);}
+    const win=this.soundWindow?.isConnected&&this.soundWindow.querySelector('.sp-editor');if(win)this.drawEditorInto(win,this.soundLane);}
+  drawEditorInto(host,lane){const s=this.slots[lane];if(!s){host.innerHTML='<p>Select a pad or instrument and drop a sound to edit it.</p>';return;}
     const num=(key,label,min,max,step)=>`<label>${label}<input data-sample="${key}" aria-label="${label}" type="number" min="${min}" max="${max}" step="${step}" value="${s[key]??({volume:1,end:1,attack:.003,release:.03}[key]||0)}"></label>`;
     const check=(key,label)=>`<label><input data-sample="${key}" type="checkbox" ${s[key]?'checked':''}>${label}</label>`;
-    host.innerHTML=`<strong>${this.selected<16?'Pad '+(this.selected+1):'Instrument '+(this.selected-15)} · ${this.esc(s.name)}</strong><canvas width="900" height="50" aria-label="Selected sound waveform"></canvas><div class="sp-actions">${num('start','Start',0,99999,.001)}${num('end','End',.001,99999,.001)}${num('volume','Volume',0,2,.05)}${num('pan','Pan',-1,1,.1)}${num('pitch','Pitch',-36,36,1)}${check('reverse','Reverse')}${check('gate','Hold / gate')}${check('loop','Loop trim')}${this.selected<16?`<label title="On: hitting this pad again stops the last hit, so long sounds never pile up. Off: hits overlap."><input data-sample="mono" type="checkbox" ${s.mono!==false?'checked':''}>Cut itself</label>`:''}</div>
+    host.innerHTML=`<strong>${lane<16?'Pad '+(lane+1):'Instrument '+(lane-15)} · ${this.esc(s.name)}</strong><canvas width="900" height="50" aria-label="Selected sound waveform"></canvas><div class="sp-actions">${num('start','Start',0,99999,.001)}${num('end','End',.001,99999,.001)}${num('volume','Volume',0,2,.05)}${num('pan','Pan',-1,1,.1)}${num('pitch','Pitch (semitones)',-36,36,.01)}${check('reverse','Reverse')}${check('gate','Hold / gate')}${check('loop','Loop trim')}${lane<16?`<label title="On: hitting this pad again stops the last hit, so long sounds never pile up. Off: hits overlap."><input data-sample="mono" type="checkbox" ${s.mono!==false?'checked':''}>Cut itself</label>`:''}</div>
     <div class="sp-actions sp-length"><span data-length-readout>${this.lengthText(s)}</span>${[1,2,4].map(n=>`<button data-bars="${n}">${n} bar${n>1?'s':''}</button>`).join('')}<button data-bars="whole">Whole sound</button></div><div class="sp-actions sp-lyric-entry">${this.button('lyric-clip','✂ Chop this sound → pad','Open this sound as a waveform: highlight a piece and drop it on a pad')}<small>Highlight on the waveform or tap the words; the pad plays just that piece. A Quick split vocals stem works best.</small></div><details class="sp-advanced" ${this.ui.advanced?'open':''}><summary>Advanced sample controls</summary><div class="sp-actions">${num('attack','Attack / fade in',.001,2,.001)}${num('release','Release / fade out',.003,3,.001)}${num('choke','Choke group',0,16,1)}${this.button('slice','Slice to pads')}${this.button('save-chop','Save Chop')}<label>Slice points (seconds)<input data-slice-points placeholder="0.2, 0.5, 0.8"></label></div></details>`;
     host.querySelectorAll('[data-bars]').forEach(b=>b.onclick=()=>this.run(()=>this.setBars(b.dataset.bars)));
     host.querySelector('.sp-advanced').ontoggle=e=>{if(this.ui.advanced!==e.target.open){this.ui.advanced=e.target.open;this.changed();}};
@@ -425,6 +511,49 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
     const data=buffer.getChannelData(0),stride=Math.max(1,Math.floor(data.length/900));ctx.fillStyle='#261a3f';ctx.fillRect(0,0,900,50);ctx.strokeStyle='#c9a4ff';ctx.beginPath();for(let x=0;x<900;x++){let peak=0;for(let i=x*stride;i<Math.min(data.length,(x+1)*stride);i+=Math.max(1,Math.floor(stride/20)))peak=Math.max(peak,Math.abs(data[i]));ctx.moveTo(x,25-peak*24);ctx.lineTo(x,25+peak*24);}ctx.stroke();ctx.fillStyle='#b784ff55';ctx.fillRect(s.start/buffer.duration*900,0,(s.end-s.start)/buffer.duration*900,50);
     canvas.onclick=e=>{const time=clamp((e.clientX-canvas.getBoundingClientRect().left)/canvas.getBoundingClientRect().width*buffer.duration,0,buffer.duration);this.checkpoint();if(e.shiftKey)s.end=Math.max(s.start+.001,time);else s.start=Math.min(s.end-.001,time);this.changed();this.drawEditor();};canvas.title='Click to set start; Shift-click to set end. Numeric fields also work on touch.';
   }
+  padName(lane){return lane<16?'Pad '+(lane+1):'Instrument '+(lane-15);}
+  // Right-click a pad: everything about the sound on it.
+  padMenu(lane,at){const s=this.slots[lane],empty=!s,why='This pad is empty. Load a sound onto it first.';
+    const pick=fn=>()=>{this.selected=lane;this.draw();return this.run(fn);};
+    window.ItemMenu.show(at,[
+      {id:'play',label:'Play',disabled:empty,why,run:()=>this.audition(lane)},
+      {id:'edit',label:'Edit sound… (trim, pitch, volume, fades)',disabled:empty,why,run:()=>this.openSoundWindow(lane)},
+      {id:'chop',label:'Chop a piece of this sound…',disabled:empty,why,run:pick(()=>this.openClip())},
+      {id:'rename',label:'Rename sound',disabled:empty,why,run:()=>{const n=prompt('Sound name',s.name);if(n&&n.trim()){this.checkpoint();s.name=n.trim().slice(0,160);this.changed();this.draw();}}},
+      '-',
+      {id:'load',label:empty?'Load a sound from SONGS…':'Replace with a sound from SONGS…',run:pick(()=>this.action('songs'))},
+      {id:'copy',label:'Copy sound',disabled:empty,why,run:()=>{this.clipboard=clone(s);this.message('Copied '+s.name+'. Right-click another pad → Paste sound here.');}},
+      {id:'paste',label:'Paste sound here',disabled:!this.clipboard,why:'Copy a pad first (right-click it → Copy sound).',run:pick(()=>this.action('paste'))},
+      {id:'save-chop',label:'Save as a chop in SONGS…',disabled:empty,why,run:pick(()=>this.action('save-chop'))},
+      '-',
+      {id:'clear',label:'Clear pad',danger:true,disabled:empty,why,run:()=>this.clearPad(lane)},
+    ],{title:this.padName(lane)+(s?' · '+s.name:' · empty'),label:'Pad actions'});}
+  clearPad(lane){const s=this.slots[lane];if(!s)return;this.checkpoint();this.panic();this.slots[lane]=null;this.changed();this.draw();
+    // The sound file stays in SONGS; UNDO puts this exact sound and its settings back.
+    window.ItemMenu.undoable('Cleared '+this.padName(lane)+' ('+s.name+').',()=>this.run(async()=>{if(this.slots[lane])return this.message(this.padName(lane)+' has a new sound now, so the old one was not put back.',true);this.checkpoint();this.slots[lane]=s;await this.prepareSlot(s);this.changed();this.draw();}));}
+  audition(lane){const s=this.slots[lane];if(!s)return;const note=lane>=16?(s.root??this.project.root):60;
+    this.releaseToken('menu-audition',true);this.run(()=>this.press(lane,note,100,'menu-audition'));
+    const secs=Math.min(4,Math.max(.15,(s.end-s.start)/2**((s.pitch||0)/12)));clearTimeout(this.auditionTimer);this.auditionTimer=setTimeout(()=>this.releaseToken('menu-audition'),secs*1000);}
+  // EDIT SOUND: a small window with every setting of the sound on one pad.
+  openSoundWindow(lane){const start=this.slots[lane];if(!start)throw Error('This pad is empty.');const before=clone(start);
+    this.selected=lane;this.draw();
+    const dialog=window.ItemMenu.panel({title:'Edit sound · '+this.padName(lane)+' · '+start.name,className:'sp-sound-window',onClose:()=>{this.soundWindow=null;this.soundLane=null;this.releaseToken('menu-audition',true);}});
+    dialog.id='sp-sound';this.soundWindow=dialog;this.soundLane=lane;
+    dialog.querySelector('.im-panel-body').innerHTML=`<div class="sp-sound-quick" role="group" aria-label="Pitch"><strong>Pitch</strong><button type="button" data-pitch-step="-12">− Octave</button><button type="button" data-pitch-step="-1">− Semitone</button><output data-pitch-readout aria-live="polite"></output><button type="button" data-pitch-step="1">+ Semitone</button><button type="button" data-pitch-step="12">+ Octave</button><label>Fine tune <input data-fine type="range" min="-50" max="50" step="1" aria-label="Fine tune in cents"> <output data-fine-readout></output></label></div>
+      <div class="sp-sound-quick"><button type="button" data-sound="audition" class="sp-sound-play">▶ AUDITION</button><button type="button" data-sound="reset">Reset all changes</button><span class="sp-sound-note">Click the waveform to set Start, Shift-click to set End. Changes apply right away and save with the beat; pitch also changes length, like a turntable.</span></div>
+      <div class="sp-editor"></div><div class="sp-sound-done"><button type="button" data-sound="done">DONE</button></div>`;
+    const q=sel=>dialog.querySelector(sel),fine=q('[data-fine]');
+    const quick=()=>{const p=this.slots[lane]?.pitch||0,semis=Math.round(p),cents=Math.round((p-semis)*100);q('[data-pitch-readout]').textContent=(semis>0?'+':'')+semis+' st';fine.value=cents;q('[data-fine-readout]').textContent=(cents>0?'+':'')+cents+' ¢';};
+    const setPitch=async v=>{const slot=this.slots[lane];if(!slot)return;this.checkpoint();slot.pitch=clamp(Math.round(v*100)/100,-36,36);await this.prepareSlot(slot);this.changed();this.drawEditor();quick();};
+    dialog.addEventListener('click',e=>{const t=e.target.closest('button');if(!t||!dialog.contains(t))return;
+      if(t.dataset.pitchStep)return this.run(()=>setPitch((this.slots[lane]?.pitch||0)+ +t.dataset.pitchStep));
+      if(t.dataset.sound==='audition')return this.audition(lane);
+      if(t.dataset.sound==='done')return dialog.close();
+      if(t.dataset.sound==='reset')return this.run(async()=>{this.checkpoint();this.slots[lane]=clone(before);await this.prepareSlot(this.slots[lane]);this.changed();this.draw();this.drawEditor();quick();});
+      if(t.dataset.action){this.selected=lane;this.run(()=>this.action(t.dataset.action));}});
+    fine.oninput=()=>this.run(()=>setPitch(Math.round(this.slots[lane]?.pitch||0)+ +fine.value/100));
+    dialog.addEventListener('change',e=>{if(e.target===fine)return;this.selected=lane;this.run(async()=>{await this.change(e.target);quick();});});
+    this.drawEditor();quick();q('[data-sound="audition"]').focus();return dialog;}
   lengthText(s){const rate=2**((s.pitch||0)/12),secs=(s.end-s.start)/rate,bars=secs/this.barSeconds(1);
     return `Plays ${secs.toFixed(2)} s = ${bars<10?bars.toFixed(2):bars.toFixed(0)} bars at ${this.project.bpm} BPM${s.gate||s.loop?' (stops when you let go)':''}`;}
   // LOAD ONTO OXYGEN: preview a split or pack, tick up to 16 sounds, and fill the pads in one go.
@@ -474,7 +603,7 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
     <p data-pack-status role="status" class="${p.error?'error':''}">${this.esc(p.status||'')}</p>`;}
   // CHOP → PAD. The sound opens as a zoomable waveform track. Drag across it (or tap words) to highlight
   // a piece, listen, then tap or drop it on a pad. Words come from Whisper on this computer, once per
-  // sound (cached in data/transcripts); the waveform works before they arrive.
+  // sound (cached in data/transcripts), only when Load words is requested.
   async transcript(item){this.transcripts=this.transcripts||new Map();if(this.transcripts.has(item.url))return this.transcripts.get(item.url);
     const words=(await this.lyricRequest('/api/transcript',{url:item.url})).words;this.transcripts.set(item.url,words);return words;}
   async lyricRequest(path,body){const response=await fetch(path,{method:'POST',headers:{'X-ScrewShop':'1','Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -489,7 +618,7 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
     this.pendingSound=null;// otherwise the next pad hit would load that sound instead of playing the chop
     let dialog=document.getElementById('sp-clip');
     if(!dialog){dialog=document.createElement('dialog');dialog.id='sp-clip';dialog.className='sp-clip';dialog.setAttribute('aria-label','Chop to a pad');document.body.append(dialog);
-      dialog.onclose=()=>{this.stopClipPreview();clearInterval(this.clipTimer);};
+      dialog.onclose=()=>{if(dialog.open)return;this.stopClipPreview();clearInterval(this.clipTimer);if(this.clip)this.clip.closed=true;};
       dialog.onclick=e=>{const t=e.target.closest('button');if(t)this.clipRun(()=>this.clipAction(t,e));};
       dialog.oninput=e=>{if(e.target.matches('[data-clip-find]')&&this.clip)this.clip.find=e.target.value;};
       dialog.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&e.target.matches('[data-clip-find]')){e.preventDefault();this.clipRun(()=>this.findClip(false));}};
@@ -499,15 +628,20 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
       dialog.ondrop=e=>{const pad=e.target.closest('[data-clip-pad]');if(!pad)return;e.preventDefault();this.clipRun(()=>this.saveClip(+pad.dataset.clipPad));};}
     const fromPad=this.slots.indexOf(source);
     this.clip={item,words:null,a:-1,b:-1,anchor:null,has:false,start:0,end:0,zoom:0,target:this.nextEmptyPad(fromPad>=0&&fromPad<16?fromPad+1:this.selected<16?this.selected:0),saved:null,find:this.clip?.item.url===item.url?this.clip.find:''};
-    const clip=this.clip,began=Date.now();clip.status='Loading the waveform…';this.drawClip();if(!dialog.open)dialog.showModal();
+    const clip=this.clip;clip.status='Loading the waveform…';this.drawClip();if(!dialog.open)dialog.showModal();
     try{await this.decode(item);}catch(e){if(this.clip===clip){clip.words=[];this.clipStatus('Could not load this sound: '+e.message,true);}throw e;}
-    if(this.clip!==clip)return;this.drawClip();
-    this.clipStatus('Drag across the waveform to highlight a piece. Words are loading below (the first time on a sound takes 1–2 minutes).');
-    clearInterval(this.clipTimer);this.clipTimer=setInterval(()=>{const p=dialog.querySelector('.sp-clip-words p');if(this.clip!==clip||clip.words||!p)return clearInterval(this.clipTimer);p.textContent=`Listening for words… ${Math.round((Date.now()-began)/1000)} s. You can already highlight on the waveform.`;},1000);
-    try{const words=await this.transcript(item);if(this.clip!==clip)return;clip.words=words;if(clip.has)this.wordsInClip();
-      if(!clip.has)this.clipStatus(words.length?'Drag across the waveform, or tap the first word and then the last word.':'No words were heard. You can still highlight on the waveform.');}
-    catch(e){if(this.clip===clip){clip.words=[];this.clipStatus('Words unavailable ('+e.message+'). You can still highlight on the waveform.',true);}}
-    finally{clearInterval(this.clipTimer);if(this.clip===clip)this.drawClip();}
+    if(this.clip!==clip||clip.closed)return;
+    clip.words=this.transcripts?.get(item.url)??null;
+    this.clipStatus('Drag across the waveform to highlight a piece, listen, then tap a pad to save it. Load words only if you want to chop by lyrics.');this.drawClip();
+  }
+  async loadClipWords(){const clip=this.clip;if(!clip||clip.loadingWords||clip.closed)return;
+    clip.loadingWords=true;const began=Date.now();this.drawClip();
+    this.clipStatus('Listening for words on this computer. You can keep chopping the waveform.');
+    const timer=setInterval(()=>{const p=document.querySelector('#sp-clip .sp-clip-words p');if(this.clip!==clip||clip.closed)return clearInterval(timer);if(p)p.textContent=`Listening for words... ${Math.round((Date.now()-began)/1000)} s. You can keep using the waveform.`;},1000);this.clipTimer=timer;
+    try{const words=await this.transcript(clip.item);if(this.clip!==clip||clip.closed)return;clip.words=words;if(clip.has)this.wordsInClip();
+      this.clipStatus(words.length?'Words ready. Tap the first and last word, or keep using the waveform.':'No words were heard. You can still highlight on the waveform.');}
+    catch(e){if(this.clip===clip&&!clip.closed)this.clipStatus('Words unavailable ('+e.message+'). You can still highlight on the waveform.',true);}
+    finally{clearInterval(timer);clip.loadingWords=false;if(this.clip===clip&&!clip.closed)this.drawClip();}
   }
   // Problems inside the chop window are shown in the window, not in the status bar hidden behind it.
   clipRun(fn){Promise.resolve().then(fn).catch(e=>this.clipStatus(e.message,true));}
@@ -530,6 +664,7 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
     if(t.dataset.clipPad!=null)return this.saveClip(+t.dataset.clipPad);
     const a=t.dataset.clip;
     if(a==='close')return document.getElementById('sp-clip')?.close();
+    if(a==='words')return this.loadClipWords();
     if(a==='play')return this.playClip();
     if(a==='stop')return this.stopClipPreview();
     if(a==='zoom-in'||a==='zoom-out')return this.zoomClip((c.zoom||this.fitZoom())*(a==='zoom-in'?2:.5));
@@ -587,7 +722,7 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
     const chans=Array.from({length:buffer.numberOfChannels},(_,i)=>buffer.getChannelData(i)),n=Math.ceil(buffer.length/256),min=new Float32Array(n),max=new Float32Array(n);
     for(let k=0;k<n;k++){let lo=0,hi=0;const end=Math.min(buffer.length,(k+1)*256);for(const d of chans)for(let i=k*256;i<end;i++){const v=d[i];if(v<lo)lo=v;else if(v>hi)hi=v;}min[k]=lo;max[k]=hi;}
     p={min,max};this.peakCache.set(buffer,p);return p;}
-  drawWave(){const c=this.clip,box=this.waveBox(),canvas=box?.querySelector('canvas'),buffer=c&&this.buffers.get(c.item.url);if(!canvas||!buffer)return;
+  drawWave(){const c=this.clip,box=this.waveBox(),canvas=box?.querySelector('canvas'),buffer=c&&this.buffers.get(c.item.url);if(!canvas||!buffer||!document.getElementById('sp-clip')?.open||!box.clientWidth)return;
     const dpr=window.devicePixelRatio||1,W=box.clientWidth,H=canvas.clientHeight||120;if(canvas.width!==Math.round(W*dpr)||canvas.height!==Math.round(H*dpr)){canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);}canvas.style.width=W+'px';
     const g=canvas.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);const z=c.zoom||this.fitZoom(),left=box.scrollLeft,t=x=>(left+x)/z,X=time=>time*z-left,sr=buffer.sampleRate,top=16,mid=top+(H-top-16)/2,amp=(H-top-16)/2;
     g.fillStyle='#120c19';g.fillRect(0,0,W,H);
@@ -634,7 +769,7 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
     <p data-clip-status role="status" class="${c.error?'error':''}">${this.esc(c.status||'')}</p>
     <details class="sp-clip-wordbox" open><summary>Words heard (tap the first and last word)</summary>
     <div class="sp-clip-find"><textarea data-clip-find rows="1" aria-label="Type words to find" placeholder="Or type some of the words and press Find">${this.esc(c.find||'')}</textarea><button data-clip="find">Find</button><button data-clip="next" ${c.matches?.length>1?'':'disabled'}>Next match</button>${lines?'<button data-clip="lines">Each typed line → its own pad</button>':''}</div>
-    <div class="sp-clip-words" role="group" aria-label="Words heard in this sound">${w?words||'<p>No words heard.</p>':'<p>Listening for words…</p>'}</div></details>`;
+    <div class="sp-clip-words" role="group" aria-label="Words heard in this sound">${w?words||'<p>No words heard.</p>':`<p>${c.loadingWords?'Listening for words… You can keep using the waveform.':'Word recognition is optional and may take a few minutes.'}</p><button data-clip="words" ${c.loadingWords?'disabled':''}>${c.loadingWords?'Loading words…':'Load words'}</button>`}</div></details>`;
     if(ready){this.wireWave();const box=this.waveBox();box.scrollLeft=scrollLeft;const label=d.querySelector('[data-zoom-label]');if(label)label.textContent=this.zoomText();requestAnimationFrame(()=>this.drawWave());}
     const next=d.querySelector('.sp-clip-words');if(scroll)next.querySelector('.on')?.scrollIntoView({block:'nearest'});else next.scrollTop=top;}
   slice(){const s=this.slots[this.selected];if(!s)throw Error('Select a sound to slice.');const value=this.host.querySelector('[data-slice-points]').value;const points=value.split(',').map(x=>Number(x.trim())).filter(x=>Number.isFinite(x)&&x>s.start&&x<s.end);const cuts=[s.start,...new Set(points.sort((a,b)=>a-b)),s.end];if(cuts.length<3)throw Error('Enter one or more slice points inside the trim range.');if(cuts.length>17)throw Error('Use at most 15 slice points for 16 pads.');this.checkpoint();for(let i=0;i<cuts.length-1;i++)this.slots[i]={...clone(s),name:s.name+' chop '+(i+1),start:cuts[i],end:cuts[i+1],gate:false};this.changed();this.draw();}
@@ -687,15 +822,99 @@ window.StudioWorkspace = class SamplerWorkspace extends window.StudioWorkspace {
       if(revision!==JSON.stringify(this.snapshot()))throw Error('Sampler changed during rendering. Send again to use the latest version.');
       studio.checkpoint();if(policy==='sampler')studio.bpm=bpm;
       if(update){for(const {lane,item}of rendered)for(const c of existing.filter(c=>(c.samplerLane??null)===lane)){c.url=item.url;c.dur=item.dur;}}
-      else {const at=studio.snap(studio.cursor);for(const {lane,item}of rendered){const track=studio.addTrack(item.name);track.volume=1;track.clips.push({id:uid(),name:item.name,url:item.url,start:at,length:item.dur,dur:item.dur,samplerSource:key,samplerLane:lane,samplerBpm:bpm});}}
+      else {const at=studio.snap(studio.cursor);for(const {lane,item}of rendered){const track=studio.addTrack(item.name,false);track.volume=1;track.clips.push({id:uid(),name:item.name,url:item.url,start:at,length:item.dur,dur:item.dur,samplerSource:key,samplerLane:lane,samplerBpm:bpm});}}
       await studio.save();studio.refresh();this.lastRender=rendered.length===1?rendered[0].item:null;
       await this.checked(this.app.sb.from('settings').upsert({id:'sampler-beat-'+this.project.id,kind:'sampler-beat',name:this.project.name,project:this.snapshot(),render:this.lastRender}));await this.save();this.message((update?'Updated':'Sent')+' at '+bpm+' BPM. Studio clips retain their arrangement; future changes require Update Studio render.');
     }finally{this.transferring=false;}
   }
-  async exportStudio(format='wav'){const studio=this.app.studio,clips=studio.tracks.flatMap(t=>t.clips);if(!clips.length)throw Error('Studio has no clips to export.');this.notify('Rendering Studio '+format.toUpperCase()+'…');await Promise.all(clips.map(c=>studio.decode(c)));const length=Math.max(...clips.map(c=>c.start+studio.clipLen(c)));if(length>1800)throw Error('Export up to 30 minutes at a time.');
-    const ctx=new OfflineAudioContext(2,Math.ceil(length*44100),44100);for(const track of studio.tracks){const gain=ctx.createGain();gain.gain.value=studio.level(track);gain.connect(ctx.destination);for(const c of track.clips){const buffer=studio.buffers.get(c.url),duration=studio.clipLen(c),offset=c.sourceOffset||0;let at=0;while(at<duration-.00001){const source=ctx.createBufferSource();source.buffer=buffer;source.connect(gain);const start=(offset+at)%buffer.duration,n=Math.min(duration-at,buffer.duration-start);source.start(c.start+at,start,n);at+=n;}}}
-    await this.finishExport(this.wav(await ctx.startRendering()),'ScrewShop Studio mix',format);this.notify('Studio '+format.toUpperCase()+' mix exported.');
+  async renderStudio({maxBytes=Infinity}={}){
+    const studio=this.app.studio;if(!studio?.ready)throw Error('Wait for Studio to finish loading.');
+    if(studio.recording||studio.busy)throw Error('Stop recording or loading audio before saving a Studio mix.');
+    // Capture the arrangement and audible controls before asynchronous decoding.
+    const tracks=clone(studio.tracks),rate=studio.rate,masterLevel=studio.master?.gain.value??1;
+    const clips=tracks.flatMap(t=>t.clips);if(!clips.length)throw Error('Studio has no clips to export.');
+    if(!Number.isFinite(rate)||rate<=0)throw Error('Choose a valid Studio playback speed.');
+    const solo=tracks.some(t=>t.solo),level=t=>t.muted||(solo&&!t.solo)?0:(t.volume??.8);
+    const audible=tracks.filter(t=>level(t)>0&&t.clips.length);
+    if(!audible.length||masterLevel<=0)throw Error('Studio has no audible clips. Unmute a track or raise its volume before saving.');
+    const lengthFor=c=>c.length??studio.buffers.get(c.url)?.duration??c.dur??0;
+    const preflight=()=>{
+      const seconds=Math.max(...clips.map(c=>c.start+lengthFor(c)))/rate;
+      if(seconds>1800)throw Error('Export up to 30 minutes at a time.');
+      if(44+Math.ceil(seconds*44100)*4>maxBytes)throw Error('Studio mix exceeds the 300 MB local upload limit. Shorten the arrangement or increase playback speed.');
+      return seconds;
+    };
+    preflight();
+    await Promise.all(audible.flatMap(t=>t.clips).map(c=>studio.decode(c)));
+    const seconds=preflight();if(!Number.isFinite(seconds)||seconds<=0)throw Error('Studio has no audio duration to export.');
+    // Same channel strips and master bus as live playback (mix-engine.js), plus room for reverb/delay tails.
+    const tail=4,ctx=new OfflineAudioContext(2,Math.ceil((seconds+tail)*44100),44100),master=ctx.createGain();master.gain.value=masterLevel;master.connect(ctx.destination);
+    await window.ScrewMix.ready(ctx);const bus=window.ScrewMix.master(ctx,studio.mixMaster,master,studio.beat()/rate);
+    let segments=0;
+    for(const track of audible){const strip=window.ScrewMix.track(ctx,track.mix,bus);strip.fader.gain.value=level(track);const gain=strip.input;
+      for(const c of track.clips){const buffer=studio.buffers.get(c.url),duration=lengthFor(c),offset=c.sourceOffset||0;
+        if(!buffer?.duration||!Number.isFinite(duration)||duration<=0||!Number.isFinite(c.start)||c.start<0||!Number.isFinite(offset)||offset<0)throw Error('Studio contains an invalid clip. Check its position and trim.');
+        let at=0;while(at<duration-.00001){
+          if(++segments>100000)throw Error('This arrangement repeats too many short clips. Render a smaller section.');
+          const start=(offset+at)%buffer.duration,n=Math.min(duration-at,buffer.duration-start);
+          const source=ctx.createBufferSource();source.buffer=buffer;source.playbackRate.value=rate;source.connect(gain);source.start((c.start+at)/rate,start,n);at+=n;
+        }
+      }
+    }
+    const full=await ctx.startRendering();
+    // Remove the compressor look-ahead at the start, and keep effect tails only while they are audible.
+    const skip=Math.round(window.ScrewMix.LATENCY*44100),minEnd=Math.ceil(seconds*44100);let end=full.length;
+    const chans=[...Array(full.numberOfChannels)].map((_,c)=>full.getChannelData(c));
+    // Exact arrangement length unless reverb/delay is in use; then keep the tail until it falls below -80 dB.
+    const tails=audible.some(t=>{const m=window.ScrewMix.trackSettings(t.mix);return m.reverb>0||m.delay>0;});
+    if(!tails)end=Math.min(end,minEnd+skip);else while(end>minEnd+skip&&chans.every(d=>Math.abs(d[end-1])<1e-4))end--;
+    const rendered=new AudioBuffer({numberOfChannels:full.numberOfChannels,length:Math.max(1,end-skip),sampleRate:44100});
+    chans.forEach((d,c)=>rendered.copyToChannel(d.subarray(skip,end),c));
+    let peak=0;
+    for(let channel=0;channel<rendered.numberOfChannels;channel++){
+      const samples=rendered.getChannelData(channel);for(let i=0;i<samples.length;i++)peak=Math.max(peak,Math.abs(samples[i]));
+    }
+    // Leave quiet mixes alone; prevent PCM clipping when tracks sum above full scale.
+    const headroom=peak>.999?.98/peak:1;
+    if(headroom<1)for(let channel=0;channel<rendered.numberOfChannels;channel++){
+      const samples=rendered.getChannelData(channel);for(let i=0;i<samples.length;i++)samples[i]*=headroom;
+    }
+    rendered.studioMixStats={input_peak:peak,audio_peak:peak*headroom,headroom_gain:headroom};return rendered;
   }
-  dispose(){clearInterval(this.scheduler);clearInterval(this.clipTimer);document.getElementById('sp-clip')?.remove();document.getElementById('sp-pack')?.remove();document.removeEventListener('keydown',this.onComputer);document.removeEventListener('keyup',this.onComputer);window.removeEventListener('blur',this.onBlur);super.dispose();}
+  async saveStudioToSongs(name){
+    if(this.savingStudioMix)throw Error('A Studio mix is already saving.');
+    const title=(name??'ScrewShop Studio mix').trim();if(!title)throw Error('Give your Studio mix a name.');
+    if(title.length>160)throw Error('Keep the mix name within 160 characters.');
+    this.savingStudioMix=true;this.notify('Rendering Studio mix…');
+    try{
+      const buffer=await this.renderStudio({maxBytes:300*1024*1024}),blob=this.wav(buffer),id=uid(),path='local/studio-mixes/'+id+'.wav';
+      await this.checked(this.app.sb.storage.from('beats').upload(path,blob));
+      const row={id,user_id:'local',name:title,storage_path:path,bucket:'beats',source_kind:'studio-mix',source_session_id:'recording-session',source_song_id:this.app.SONG_UUID,duration:buffer.duration,created_at:new Date().toISOString(),...buffer.studioMixStats};
+      await this.checked(this.app.sb.from('library').insert(row));await this.app.loadLibrary();await this.refreshLibrary();
+      this.notify('Saved '+title+' in SONGS.'+(row.headroom_gain<1?' Reduced mix gain to prevent clipping.':''));return {...row,url:this.app.studio.url('beats',path)};
+    }finally{this.savingStudioMix=false;}
+  }
+  // EXPORT MIX MP3: finished at -14 LUFS, added to SONGS like an imported song, and copied to ScrewShop/mp3s.
+  async exportStudioMp3(name){
+    if(this.savingStudioMix)throw Error('A Studio mix is already saving.');
+    const title=(name??'').trim();if(!title)return null;
+    if(title.length>160)throw Error('Keep the song name within 160 characters.');
+    this.savingStudioMix=true;this.notify('Rendering '+title+'…');
+    try{
+      const buffer=await this.renderStudio({maxBytes:300*1024*1024}),path='local/studio-mixes/'+uid()+'.wav';
+      await this.checked(this.app.sb.storage.from('beats').upload(path,this.wav(buffer)));
+      this.notify('Finishing loudness and encoding MP3…');
+      const result=await window.ScrewShop.export({kind:'song-mp3',storage_path:path,name:title});if(result.error)throw Error(result.error.message);
+      await this.app.loadLibrary();await this.refreshLibrary();
+      const lufs=result.data.report?.after?.integrated_lufs;
+      this.notify('Saved "'+title+'" to SONGS (Imported) and to ScrewShop\\'+result.data.saved_to.replace('/','\\')+(lufs!=null?' · '+lufs.toFixed(1)+' LUFS':''));
+      return result.data;
+    }finally{this.savingStudioMix=false;}
+  }
+  async exportStudio(format='wav'){
+    this.notify('Rendering Studio '+format.toUpperCase()+'…');
+    const buffer=await this.renderStudio();await this.finishExport(this.wav(buffer),'ScrewShop Studio mix',format);this.notify('Studio '+format.toUpperCase()+' mix exported.'+(buffer.studioMixStats.headroom_gain<1?' Reduced mix gain to prevent clipping.':''));
+  }
+  dispose(){this.disposed=true;clearInterval(this.scheduler);clearInterval(this.clipTimer);clearTimeout(this.noteSaveTimer);clearTimeout(this.liveUITimer);cancelAnimationFrame(this.liveFrame);document.getElementById('sp-clip')?.remove();document.getElementById('sp-pack')?.remove();document.removeEventListener('keydown',this.onComputer);document.removeEventListener('keyup',this.onComputer);window.removeEventListener('blur',this.onBlur);super.dispose();}
 };
 })();

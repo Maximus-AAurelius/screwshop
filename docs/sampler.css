@@ -108,3 +108,25 @@
 #ss-sampler .sp-lane-label [data-lane-select].sel{border-color:#ffe066;color:#ffe066;font-weight:700}
 #ss-sampler .sp-lane-label [data-lane-select].lane-hit{background:#ffe066!important;color:#241331!important;border-color:#fff;transition:none}
 #ss-sampler .sp-lane-label [data-lane-select]{transition:background .35s,color .35s}
+/* EDIT SOUND window (right-click a pad → Edit sound…) */
+.sp-sound-window{--sp-line:#594173}
+.sp-sound-window button,.sp-sound-window input,.sp-sound-window select{font:inherit;color:inherit;background:#2e2140;border:1px solid var(--sp-line);border-radius:6px;min-height:34px;box-sizing:border-box}
+.sp-sound-window button{cursor:pointer;padding:5px 10px}
+.sp-sound-window button:hover{background:#503369}
+.sp-sound-window input[type=range]{min-height:0;padding:0;vertical-align:middle}
+.sp-sound-quick{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 10px}
+.sp-sound-quick strong{font-size:11px;letter-spacing:.1em;margin-right:4px}
+.sp-sound-quick output{min-width:52px;text-align:center;font-weight:800}
+.sp-sound-quick label{display:flex;align-items:center;gap:6px;margin-left:8px}
+.sp-sound-window .sp-sound-play{background:#b99af5;border-color:#b99af5;color:#160f25;font-weight:800}
+.sp-sound-note{flex:1;min-width:200px;font-size:11px;color:#c1afda}
+.sp-sound-window .sp-editor{border-top:1px solid var(--sp-line);padding-top:10px}
+.sp-sound-window .sp-editor canvas{display:block;width:100%;height:90px;margin:6px 0;border-radius:6px;cursor:crosshair}
+.sp-sound-window .sp-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0;font-size:12px}
+.sp-sound-window .sp-actions label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:#d9c8f0}
+.sp-sound-window .sp-actions label:has(input[type=checkbox]){flex-direction:row;align-items:center}
+.sp-sound-window .sp-editor input[type=number]{width:84px}
+.sp-sound-window details{margin-top:8px}.sp-sound-window summary{cursor:pointer;font-weight:700}
+.sp-sound-done{display:flex;justify-content:flex-end;margin-top:12px}
+@media (max-width:600px){.sp-sound-quick label{margin-left:0;width:100%}}
+.sp-sound-window .sp-editor>strong{display:none}

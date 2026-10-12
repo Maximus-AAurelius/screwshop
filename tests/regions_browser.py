@@ -35,8 +35,9 @@ with tempfile.TemporaryDirectory() as temp:
             page.mouse.dblclick(cb['x']+3*pps,cb['y']+42,delay=80)
             page.get_by_role('button',name='Drag scissors down to split',exact=True).wait_for()
             page.screenshot(path=str(OUT/'studio-scissors.png'))
-            assert page.locator('#gb-track-menu').get_by_role('button',name='Delete',exact=True).is_visible()
-            assert page.locator('#gb-track-menu').get_by_role('button',name='Duplicate',exact=True).is_visible()
+            assert page.locator('.im-menu').get_by_role('menuitem',name='Delete clip').is_visible()
+            assert page.locator('.im-menu').get_by_role('menuitem',name='Duplicate after itself').is_visible()
+            assert page.locator('.im-menu [data-action="split-here"]').get_attribute('aria-disabled') is None, 'double-click point is inside the clip'
             # Move the marker by its white triangle, and move it back to three seconds.
             handle=page.get_by_role('button',name='Drag playhead').bounding_box()
             page.mouse.move(handle['x']+15,handle['y']+8); page.mouse.down()
@@ -68,7 +69,7 @@ with tempfile.TemporaryDirectory() as temp:
             assert len(session()['tracks'])==1
             right=page.locator('[data-clip]').nth(1)
             right.dblclick(position={'x':55,'y':42})
-            page.locator('#gb-track-menu').get_by_role('button',name='Delete',exact=True).click()
+            page.locator('.im-menu [data-action="delete"]').click()
             page.wait_for_function('document.querySelectorAll("[data-clip]").length===1')
             page.get_by_role('button',name='\u21b6 UNDO',exact=True).click()
             page.wait_for_function('document.querySelectorAll("[data-clip]").length===2')
@@ -79,6 +80,30 @@ with tempfile.TemporaryDirectory() as temp:
             page.reload(); page.get_by_role('button',name='STUDIO',exact=True).click()
             page.wait_for_function('document.querySelectorAll("[data-clip]").length===2')
             assert abs(session()['tracks'][0]['clips'][1]['sourceOffset']-3)<0.04
+            # Right-click a clip: Esc closes, copy + paste, delete with the UNDO toast.
+            count = lambda n: page.wait_for_function(f'document.querySelectorAll("[data-clip]").length==={n}')
+            first=page.locator('[data-clip]').first
+            first.click(button='right',position={'x':40,'y':42})
+            assert page.locator('.im-menu [data-action="paste"]').get_attribute('aria-disabled')=='true', 'nothing copied yet'
+            page.keyboard.press('Escape'); assert page.locator('.im-menu').count()==0
+            first.click(button='right',position={'x':40,'y':42}); page.locator('.im-menu [data-action="copy"]').click()
+            page.locator('[data-clip]').first.click(button='right',position={'x':40,'y':42}); page.locator('.im-menu [data-action="paste"]').click()
+            count(3)
+            page.locator('[data-clip]').last.click(button='right',position={'x':20,'y':42})
+            page.locator('.im-menu [data-action="delete"]').click(); count(2)
+            page.locator('.im-toast .im-undo').last.click(); count(3)
+            page.locator('[data-clip]').last.click(button='right',position={'x':20,'y':42})
+            page.locator('.im-menu [data-action="delete"]').click(); count(2)
+            page.wait_for_timeout(300)
+            # A cancelled pointer gesture (e.g. an interrupted touch) must not move audio.
+            original_regions=json.dumps(session()['tracks'],sort_keys=True)
+            cb=page.locator('[data-clip]').first.bounding_box()
+            page.mouse.move(cb['x']+20,cb['y']+42); page.mouse.down()
+            page.mouse.move(cb['x']+130,cb['y']+42,steps=5)
+            page.evaluate("window.dispatchEvent(new PointerEvent('pointercancel',{bubbles:true}))")
+            page.mouse.up(); page.wait_for_timeout(300)
+            assert json.dumps(session()['tracks'],sort_keys=True)==original_regions, 'cancelled drag changed stored audio regions'
+            assert abs(page.locator('[data-clip]').first.bounding_box()['x']-cb['x'])<2, 'cancelled drag left stale visual position'
             page.get_by_role('button',name='Play',exact=True).click()
             page.wait_for_function('window.levels().some(v=>v>0.01)')
             page.get_by_role('button',name='Pause',exact=True).click()
@@ -87,7 +112,7 @@ with tempfile.TemporaryDirectory() as temp:
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
             page.screenshot(path=str(OUT/'studio-region-phone.png'))
             assert not errors, errors
-            print('PASS: edit menu, draggable playhead, downward scissors, short-drag cancellation, split offsets, delete, undo/redo, persistence, playback, mobile layout')
+            print('PASS: edit menu, draggable playhead, scissors, cancelled gestures, split offsets, delete, undo/redo, persistence, playback, mobile layout')
             b.close()
     finally:
         server.shutdown(); t.join(); server.server_close()

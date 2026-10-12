@@ -1,5 +1,5 @@
 """Exercise real deck audio routing and the visible mixer in an isolated studio."""
-import os, sys, tempfile, threading, wave, math, struct
+import re, os, sys, tempfile, threading, wave, math, struct
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 ROOT=Path(__file__).resolve().parents[1]
@@ -25,19 +25,19 @@ with tempfile.TemporaryDirectory() as temp:
                 with page.expect_file_chooser() as fc: page.get_by_label('Load deck '+deck,exact=True).click()
                 fc.value.set_files(str(audio))
                 page.locator('#turntable-'+deck+' .deck-heading span').get_by_text('Test record.wav',exact=True).wait_for()
-            page.get_by_label('Play or pause deck A',exact=True).click()
+            page.get_by_label('Deck A playback',exact=True).click()
             page.get_by_label('Deck A playback',exact=True).get_by_text('PAUSE',exact=True).wait_for()
             page.wait_for_function('window.levels().some(v=>v>0.01)')
             angle=page.locator('#vinyl-A').get_attribute('style')
             page.wait_for_timeout(200)
             assert page.locator('#vinyl-A').get_attribute('style') != angle
             page.get_by_label('Deck A speed',exact=True).fill('0.65')
-            page.get_by_text('0.65×',exact=True).wait_for()
+            page.locator('#turntable-A .deck-speed b').get_by_text(re.compile(r'^0\.65×')).wait_for()
             page.get_by_label('Deck A bass',exact=True).fill('-12')
             page.get_by_label('Deck A treble',exact=True).fill('6')
             page.get_by_label('Deck crossfader',exact=True).fill('1')
             page.wait_for_function('window.levels().every(v=>v<0.00001)')
-            page.get_by_label('Play or pause deck B',exact=True).click()
+            page.get_by_label('Deck B playback',exact=True).click()
             page.wait_for_function('window.levels().some(v=>v>0.01)')
             page.get_by_label('Deck B level',exact=True).fill('0')
             page.wait_for_function('window.levels().every(v=>v<0.00001)')

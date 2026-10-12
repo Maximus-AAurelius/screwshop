@@ -68,6 +68,63 @@ def save_mp3(store, storage_path, name):
     return record_export(store, key, relative, slug(name) + '.mp3')
 
 
+def _unique(folder, stem, suffix):
+    candidate = folder / (stem + suffix)
+    n = 2
+    while candidate.exists():
+        candidate = folder / f"{stem} ({n}){suffix}"
+        n += 1
+    return candidate
+
+
+def save_song_mp3(store, storage_path, name, finish=True):
+    """Studio EXPORT MP3: finish loudness (-14 LUFS / -1 dBTP), encode 320 kbps, then
+    1) add it to SONGS exactly like an imported song, and 2) save a copy in ScrewShop/mp3s.
+    The uploaded WAV render is kept; nothing existing is overwritten."""
+    import audio_polish
+    source = store.asset('beats', storage_path)
+    if source.suffix.lower() != '.wav' or not source.is_file():
+        raise ValueError('Choose a saved WAV render to encode')
+    try:
+        with wave.open(str(source), 'rb') as audio:
+            if audio.getnframes() / audio.getframerate() > 1800:
+                raise ValueError('Export up to 30 minutes at a time')
+    except (wave.Error, EOFError) as exc:
+        raise ValueError('MP3 export requires a valid PCM WAV render') from exc
+    if not mp3_available():
+        raise ValueError('MP3 encoder unavailable on this computer. Use WAV export.')
+    title = str(name or 'ScrewShop mix').strip()[:160] or 'ScrewShop mix'
+    file_stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', ' ', title).strip(' .') or 'ScrewShop mix'
+    import imageio_ffmpeg
+    relative = f"local/mp3/{slug(title)}-{uuid.uuid4().hex[:8]}.mp3"
+    destination = store.asset('beats', relative)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    report = None
+    with tempfile.TemporaryDirectory(prefix='mp3-', dir=destination.parent) as temp:
+        encode_from = source
+        if finish:
+            encode_from = Path(temp) / 'finished.wav'
+            report = audio_polish.finish_loudness(source, encode_from, sample_rate=44100)
+        try:
+            subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), '-nostdin', '-v', 'error', '-y',
+                            '-protocol_whitelist', 'file,pipe', '-i', str(encode_from),
+                            '-map', '0:a:0', '-vn', '-c:a', 'libmp3lame', '-b:a', '320k',
+                            '-metadata', 'title=' + title, '-metadata', 'encoded_by=ScrewShop', str(destination)],
+                           capture_output=True, check=True, timeout=300,
+                           creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        except (OSError, subprocess.SubprocessError) as exc:
+            destination.unlink(missing_ok=True)
+            raise ValueError('MP3 encoding failed. Your WAV render is preserved; retry or export WAV.') from exc
+    folder = store.mp3_root
+    folder.mkdir(parents=True, exist_ok=True)
+    copy = _unique(folder, file_stem, '.mp3')
+    shutil.copyfile(destination, copy)
+    row = store.query({"table": "library", "action": "insert", "values": {
+        "user_id": "local", "name": title, "storage_path": relative, "bucket": "beats", "source_kind": "imported",
+        "mime_type": "audio/mpeg", "exported_from": "studio", "mp3_file": copy.name, "loudness": report}, "single": "required"})
+    return {"library": row, "saved_to": "mp3s/" + copy.name, "report": report}
+
+
 def record_export(store, key, relative, name):
     result = store.query({"table": "exports", "action": "upsert", "values": {"id": key, "relative_path": relative, "download_name": name}, "single": "required"})
     return {"id": result["id"], "saved_to": "Beats/" + relative, "download_url": "/downloads/" + result["id"]}

@@ -5,6 +5,7 @@ from playwright.sync_api import sync_playwright
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'scripts'))
 from local_server import make_server
+from song_source_helpers import upload_song, load_song_pad, drop_song_on_key
 
 with tempfile.TemporaryDirectory() as temp:
     audio=Path(temp)/'Oxygen tone.wav'
@@ -26,12 +27,9 @@ with tempfile.TemporaryDirectory() as temp:
             page.get_by_role('button',name='M-AUDIO / SAMPLER',exact=True).click()
             page.locator('#ss-sampler .ox-body').wait_for()
             assert page.locator('.ox-body .ox-pad').count()==8 and page.locator('.ox-body .ox-key').count()==25
-            with page.expect_file_chooser() as fc:page.locator('#ss-sampler [data-action=import]').click()
-            fc.value.set_files(str(audio))
-            source=page.locator('.sp-sound').filter(has_text='Oxygen tone').first
-            source.wait_for(timeout=15000)
+            upload_song(page, audio, 'Oxygen tone')
             # Bank 1 pad: the readout names the target while dragging, then the pad lights up.
-            source.drag_to(page.locator('.ox-pad[data-pad="2"]'))
+            load_song_pad(page, 'Oxygen tone', 2)
             page.wait_for_function('sampler.slots[2]?.name.includes("Oxygen tone")')
             assert 'ox-loaded' in page.locator('.ox-pad[data-pad="2"]').get_attribute('class')
             page.locator('.ox-pad[data-pad="2"]').hover()
@@ -39,7 +37,7 @@ with tempfile.TemporaryDirectory() as temp:
             # Bank 2 shows pads 9-16 on the same 8 drawn pads.
             page.get_by_role('button',name='BANK 2 · PADS 9–16').click()
             page.locator('.ox-pad[data-pad="8"]').wait_for()
-            source.drag_to(page.locator('.ox-pad[data-pad="12"]'))
+            load_song_pad(page, 'Oxygen tone', 12)
             page.wait_for_function('sampler.slots[12]?.name.includes("Oxygen tone")')
             assert page.evaluate('sampler.ui.bank')==1
             # Keys play pads 1-16 in drum mode: key 3 (P3) is the same sound as pad 3.
@@ -48,7 +46,7 @@ with tempfile.TemporaryDirectory() as temp:
             page.wait_for_function('sampler.voices.size>0')
             # Instrument mode: the key a sound is dropped on becomes its root pitch.
             page.locator('[data-mode]').select_option('16')
-            source.drag_to(page.locator('.ox-key[data-note="55"]'))
+            drop_song_on_key(page, 'Oxygen tone', '.ox-key[data-note="55"]')
             page.wait_for_function('sampler.slots[16]?.root===55')
             assert page.locator('.ox-key[data-note="55"]').inner_text()=='ROOT'
             # Octave + moves the keys; knob 1 in bank 2 sets pad 9's volume.

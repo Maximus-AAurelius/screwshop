@@ -9,6 +9,7 @@ from playwright.sync_api import sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from local_server import make_server
+from song_source_helpers import upload_song, load_song_pad
 
 
 def chrome_path():
@@ -45,23 +46,20 @@ with tempfile.TemporaryDirectory() as temp:
             assert page.evaluate('sampler.project.bpm') == 82
             bar = 4 * 60 / 82  # 2.927 s
 
-            with page.expect_file_chooser() as fc:
-                page.locator('#ss-sampler [data-action=import]').click()
-            fc.value.set_files([str(stem), str(short)])
-            page.locator('.sp-sound').filter(has_text='vocals stem').first.wait_for(timeout=15000)
-            page.locator('.sp-sound').filter(has_text='short hit').first.wait_for(timeout=15000)
+            upload_song(page, stem, 'vocals stem')
+            upload_song(page, short, 'short hit')
 
             # 1. A long stem lands as a 4-bar window starting where the sound starts, not at 0:00.
-            page.locator('.sp-sound').filter(has_text='vocals stem').first.drag_to(page.locator('.ox-pad[data-pad="4"]'))
+            load_song_pad(page, 'vocals stem', 4)
             page.wait_for_function('sampler.slots[4]?.end')
             slot = page.evaluate('sampler.slots[4]')
             assert abs(slot['start'] - 5) < 0.05, slot['start']
             assert abs((slot['end'] - slot['start']) - 4 * bar) < 0.01, slot
-            assert 'got the first 4 bars' in page.locator('body').inner_text()
+            assert 'first 4 bars' in page.locator('body').inner_text()
             assert '4.00 bars at 82 BPM' in page.locator('[data-length-readout]').inner_text()
 
             # 2. A short sound is left whole.
-            page.locator('.sp-sound').filter(has_text='short hit').first.drag_to(page.locator('.ox-pad[data-pad="0"]'))
+            load_song_pad(page, 'short hit', 0)
             page.wait_for_function('sampler.slots[0]?.end')
             s0 = page.evaluate('sampler.slots[0]')
             assert s0['start'] == 0 and abs(s0['end'] - 1) < 0.01, s0

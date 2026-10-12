@@ -1,0 +1,253 @@
+/* Shared workspace chrome. Audio controls and timeline geometry remain in their modules. */
+html:root {
+  color-scheme: dark;
+  --font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --color-bg: #1b1d23;
+  --color-surface: #24272f;
+  --color-text: #eef0f5;
+  --color-accent: #b99af5;
+  --color-accent-2: #cfbbf8;
+  --color-divider: #383c46;
+  --color-neutral-100: #24272f;
+  --color-neutral-200: #2c3039;
+  --color-neutral-300: #3b404c;
+  --color-neutral-400: #555d6d;
+  --color-neutral-500: #7f889a;
+  --color-neutral-600: #a6adbd;
+  --color-neutral-700: #c1c7d3;
+  --color-neutral-800: #dde1e9;
+  --color-neutral-900: #f6f7fa;
+  --color-accent-100: #292437;
+  --color-accent-200: #393049;
+  --color-accent-300: #796799;
+  --color-accent-400: #b99af5;
+  --color-accent-500: #b99af5;
+  --color-accent-600: #9f7dde;
+  --color-accent-700: #cfbbf8;
+  --color-accent-800: #514361;
+  --color-accent-900: #292437;
+  --ss-surface: #20232a;
+  --ss-panel: #292d36;
+  --ss-border: #3b404c;
+  --ss-text: #eef0f5;
+  --ss-muted: #a6adbd;
+  --ss-accent: #b99af5;
+}
+html body { background: #101216; font-family: var(--font-body); }
+html #app-shell { padding: 10px; box-sizing: border-box; }
+html #app-card { max-width: 1660px; border: 1px solid #343842; border-radius: 12px; box-shadow: 0 12px 50px #0004; overflow: hidden; }
+html #app-card > div:first-child { background: var(--color-bg); }
+#app-card button, #app-card input, #app-card select { font-family: var(--font-body); }
+#app-card button:focus-visible, #app-card input:focus-visible, #app-card select:focus-visible, #app-card summary:focus-visible { outline: 2px solid var(--ss-accent); outline-offset: 3px; }
+#app-card .studio-brand { height: 64px; flex-shrink: 0; border-bottom: 1px solid var(--ss-border); }
+#app-card .studio-brand > img { opacity: .57; object-position: center 20%; }
+#app-card .studio-brand-copy { left: 18px; bottom: 10px; align-items: center; gap: 18px; }
+#app-card .studio-brand-copy strong { font: 800 25px/1 var(--font-heading); letter-spacing: -.035em; text-shadow: 0 2px 8px #0009; color: #fff; }
+#app-card .studio-brand-copy span { font: 600 8px/1.5 var(--font-body); letter-spacing: .14em; color: #ece6f7; }
+#app-card .workspace-heading { padding: 12px 18px !important; align-items: center !important; border-bottom: 1px solid var(--ss-border) !important; }
+#app-card .workspace-heading > div:first-child > div:first-child { font: 600 9px/1.5 var(--font-body) !important; letter-spacing: .1em !important; color: var(--ss-muted) !important; }
+#app-card .workspace-heading > div:first-child > div:last-child { font: 650 21px/1.3 var(--font-heading) !important; letter-spacing: -.025em !important; }
+#app-card .workspace-heading > div:last-child > span { border-radius: 5px; letter-spacing: .04em !important; font-size: 9px !important; }
+#app-card .trill-help { width: 40px; height: 42px; border: 1px solid var(--ss-border); border-radius: 8px; background: var(--ss-panel); }
+#app-card .trill-help img { width: 27px; height: 27px; object-fit: contain; }
+#app-card .trill-help span { font: 600 7px/1 var(--font-body); letter-spacing: .05em; }
+#app-card .workspace-settings { border-radius: 8px; width: 40px !important; height: 42px !important; color: var(--ss-muted); }
+#app-card .workspace-settings:hover { background: var(--ss-panel) !important; color: var(--ss-text); }
+#app-card .studio-tabs { padding: 0 !important; border-top: 0 !important; border-bottom: 1px solid var(--ss-border); background: var(--color-bg) !important; }
+#app-card .studio-tabs > button { min-height: 44px !important; padding: 0 14px !important; text-align: center !important; border-top: 0 !important; border-right: 0 !important; border-bottom: 2px solid transparent !important; font: 600 11px/1.4 var(--font-body) !important; letter-spacing: .035em !important; }
+#app-card .studio-tabs > button:hover { background: #ffffff05 !important; }
+#app-card .studio-tabs > button[aria-current=page] { color: var(--ss-accent) !important; border-bottom-color: var(--ss-accent) !important; background: #b99af508 !important; }
+#app-card .studio-transport { padding: 9px 18px; border-bottom: 1px solid var(--ss-border); background: #24272e; gap: 7px; box-shadow: none; }
+#app-card .transport-title { color: var(--ss-muted); font: 500 10px/1.3 var(--font-body); letter-spacing: .025em; }
+#app-card .transport-controls { gap: 10px; }
+#app-card .transport-buttons { gap: 4px; }
+#app-card .transport-buttons button { border: 1px solid var(--ss-border); border-radius: 7px; background: #30343d; width: 34px; height: 32px; }
+#app-card .transport-buttons button.main-play { background: var(--ss-accent); color: #20162f; border-color: var(--ss-accent); }
+#app-card .transport-time { font-size: 11px; color: #d6dbe5; font-variant-numeric: tabular-nums; }
+#app-card .transport-controls > label { color: var(--ss-muted); font: 600 8px/1.5 var(--font-body); letter-spacing: .04em; }
+#app-card .transport-controls input[type=number] { border: 1px solid var(--ss-border); border-radius: 5px; background: #1c1f25; padding: 5px; font-size: 12px; }
+#app-card .transport-controls > button { border-radius: 6px; }
+#ss-song-library { flex: 1; min-height: 0; overflow: auto; padding: 24px; box-sizing: border-box; background: var(--color-bg); }
+#ss-song-library .ss-library-heading h2 { font-size: 26px; }
+#ss-song-library .ss-library-browser { min-height: 360px; }
+#ss-song-library .ss-library-categories { border-radius: 13px 0 0 13px; }
+#app-card .gb-studio { padding: 12px; gap: 9px; background: #1c1f25; }
+#app-card .gb-bar { background: #292d35; border: 1px solid var(--ss-border); border-radius: 9px; padding: 9px; box-shadow: none; gap: 9px; }
+#app-card .gb-group { gap: 5px; }
+#app-card .gb-bar button, #app-card .gb-edit-bar button { border-radius: 6px; border: 1px solid #454b58; background: #343944; font-size: 10px; font-weight: 600; box-shadow: none; }
+#app-card .gb-bar .gb-play { background: #77c795; color: #14271b; border-color: #77c795; }
+#app-card .gb-bar .session-record { color: #ff9da6; }
+#app-card .gb-bar button.is-on { background: #544563; border-color: var(--ss-accent); color: #e5d4ff; }
+#app-card .gb-lcd { background: #1b2223; border-color: #4e6860; border-radius: 7px; box-shadow: none; }
+#app-card .gb-tempo { font-size: 9px; color: var(--ss-muted); }
+#app-card .gb-tempo input { border-radius: 5px; background: #1e222a; border: 1px solid #454b58; }
+#app-card .gb-edit-bar { background: transparent; border: 0; padding: 0 1px; gap: 5px; }
+#app-card .gb-edit-bar > span { font-size: 10px; line-height: 1.5; color: var(--ss-muted); }
+#app-card .gb-arrange { border: 1px solid var(--ss-border); border-radius: 8px; background: #22262e; }
+#app-card .gb-browser { background: #252931; border: 1px solid var(--ss-border); border-radius: 8px; }
+#app-card .gb-browser .sl-heading { color: #e3e6ee; font: 600 13px/1.4 var(--font-body); }
+#app-card .gb-browser input, #app-card .gb-browser select { border: 1px solid #424956; background: #1c2027; border-radius: 6px; color: var(--ss-text); padding: 8px; }
+#app-card .sl-tree > details > summary { background: #2c3039; border-radius: 5px; font-weight: 600; }
+#app-card .recording-hint { font-size: 10px; line-height: 1.5; color: var(--ss-muted); }
+#app-card .ss-notepad { background: var(--color-bg); padding: 22px 24px 26px; }
+#app-card .np-top h2 { font: 650 26px/1.2 var(--font-heading); letter-spacing: -.035em; }
+#app-card .np-count { color: var(--ss-muted); }
+#app-card .np-songs { background: var(--ss-surface); border-color: var(--ss-border); border-radius: 10px; color: var(--ss-text); }
+#app-card .np-songs-heading h3 { font: 650 11px/1.5 var(--font-heading); letter-spacing: .08em; }
+#app-card .np-song-total, #app-card .np-songs-help, #app-card .np-song-item small { color: var(--ss-muted); }
+#app-card .np-new-song, #app-card .np-song-item { background: var(--ss-panel); border-color: var(--ss-border); color: var(--ss-text); font-family: var(--font-body); }
+#app-card .np-new-song { color: var(--ss-accent); }
+#app-card .np-song-item strong { font-family: var(--font-body); }
+#app-card .np-new-song:hover, #app-card .np-song-item:hover { background: #35303f; border-color: #796799; }
+#app-card .np-song-item[aria-current=true] { background: #393049; border-color: var(--ss-accent); box-shadow: inset 3px 0 var(--ss-accent); }
+#app-card .np-song-item[aria-current=true] strong { color: #eadcff; }
+#app-card .np-paper { border: 1px solid #d2d5dd; background: #f6f5f1; border-radius: 11px; box-shadow: 0 5px 18px #0002; color: #252934; }
+#app-card .np-paper-title { font: 600 18px/1.5 var(--font-heading); border-bottom-color: #dbdde3; background: #faf9f5; border-radius: 10px 10px 0 0; }
+#app-card .np-song-form label { color: #596372; font-family: var(--font-body); }
+#app-card .np-song-title { background: #fff; border-color: #b8bdc7; color: #252934; font-family: var(--font-heading); color-scheme: light; }
+#app-card .np-song-title::placeholder { color: #767d89; font-weight: 400; }
+#app-card .np-save-song { background: #393049; border-color: #796799; color: #f4ecff; font-family: var(--font-body); }
+#app-card .np-save-song:hover { background: #514361; }
+#app-card .np-paper-title .np-song-status { margin-top: 10px; font: 11px/1.5 var(--font-body); color: #596372; }
+#app-card .np-paper-title .np-song-status[data-state=error] { color: #a52d3a; }
+#app-card .np-mirror, #app-card .np-editor { font: 16px/32px ui-monospace, "Cascadia Code", Consolas, monospace; }
+#app-card .np-paper footer { color: #68717f; font-size: 10px; border-top-color: #dbdde3; }
+#app-card .np-desk { background: var(--ss-surface); border: 1px solid var(--ss-border); border-radius: 10px; padding: 18px; }
+#app-card .np-desk h3 { font: 600 16px/1.4 var(--font-heading); letter-spacing: -.015em; color: var(--ss-text); }
+#app-card .np-desk button, #app-card .np-desk input { border-radius: 6px; border-color: var(--ss-border); background: var(--ss-panel); color: var(--ss-text); font-family: var(--font-body); }
+#app-card .np-desk p, #app-card .np-desk > small { color: var(--ss-muted); }
+#app-card .np-desk summary { font-size: 12px; }
+#app-card .dj-scroll { padding: 14px 18px 24px; background: var(--color-bg); }
+#app-card .dj-intro { border-bottom: 0; padding: 0 0 8px; }
+#app-card .dj-intro > span { font: 650 15px/1.5 var(--font-heading); letter-spacing: -.01em; color: var(--ss-text); }
+#app-card .dj-intro > small { color: var(--ss-muted); font-size: 11px; }
+#app-card .screw-modes { top: -14px; background: var(--color-bg); padding: 9px 0; margin: 0 0 8px; }
+#app-card .screw-modes button { padding: 10px; background: var(--ss-panel); border: 1px solid var(--ss-border); color: var(--ss-muted); border-radius: 7px; font-weight: 600; }
+#app-card .screw-modes button[aria-pressed=true] { color: #e3d5ff; background: #44374f; border-color: #8b72b4; }
+#app-card .screw-box, #app-card .screw-stems { padding: 16px; margin: 0 0 16px; background: var(--ss-surface); border: 1px solid var(--ss-border); border-radius: 10px; color: var(--ss-text); }
+#app-card .screw-box h3, #app-card .screw-stems h3 { font: 650 19px/1.3 var(--font-heading); letter-spacing: -.02em; color: var(--ss-text); }
+#app-card .screw-box h3 small { font: 400 11px/1.5 var(--font-body); color: var(--ss-muted); }
+#app-card .screw-tools { gap: 9px; margin: 10px 0; }
+#app-card .screw-tools label { color: var(--ss-muted); font-size: 11px; }
+#app-card .screw-tools input, #app-card .screw-tools select, #app-card .screw-tools button { background: var(--ss-panel); border-color: #454b58; color: var(--ss-text); border-radius: 6px; min-height: 36px; }
+#app-card .screw-tools button { font-weight: 600; }
+#app-card .screw-tools button:hover { background: #40364d; border-color: #8e76b3; }
+#app-card .screw-box p, #app-card .screw-stems p { color: var(--ss-muted); font-size: 11px; line-height: 1.55; margin: 7px 0; }
+#app-card .screw-help { margin-top: 10px; border-top: 1px solid var(--ss-border); padding-top: 10px; }
+#app-card .screw-help summary { font-size: 11px; color: #c9b4e8; cursor: pointer; }
+#app-card .screw-stems header small { color: var(--ss-accent); letter-spacing: .09em; }
+#app-card .stem-heading { background: var(--ss-panel); }
+#app-card .stem-row { border-color: var(--ss-border); }
+#app-card .stem-row.selected { border-color: var(--ss-accent); box-shadow: 0 0 0 1px #b99af544; }
+#app-card .stem-inspector { background: var(--ss-panel); }
+#app-card .stem-knobs label { color: var(--ss-muted); }
+#app-card .stem-knobs output { color: var(--ss-text); font-size: 20px; }
+#app-card .stem-heading button, #app-card .stem-inspector button { border-color: #49505e; background: #353a45; border-radius: 5px; }
+#app-card .stem-heading button[aria-pressed=true] { background: var(--ss-accent); color: #21172f; }
+#app-card .dj-deck, #app-card .dj-mixer { border: 1px solid var(--ss-border); border-radius: 10px; background: #252830; box-shadow: none; }
+#app-card .deck-heading, #app-card .deck-buttons { border-color: var(--ss-border); }
+#app-card .deck-heading button, #app-card .deck-buttons button { border-radius: 5px; font: 600 10px/1.4 var(--font-body); }
+#app-card .deck-heading strong { color: #e1cdf8; }
+#app-card .deck-speed, #app-card .mixer-channel label { color: var(--ss-muted); }
+#app-card .dj-mixer h3 { font: 650 13px/1.4 var(--font-heading); letter-spacing: .07em; }
+#app-card .dj-mixer p { color: var(--ss-muted); }
+#app-card .dj-instructions { color: var(--ss-muted); font-size: 11px; line-height: 1.6; }
+#ss-sampler { background: var(--color-bg); --sp-line: var(--ss-border); --sp-panel: var(--ss-panel); color: var(--ss-text); }
+#ss-sampler .sp-toolbar { background: #252931; border-color: var(--ss-border); }
+#ss-sampler .sp-actions { border-color: var(--ss-border); }
+#ss-sampler .sp-actions button, #ss-sampler .sp-toolbar button, #ss-sampler .sp-editor button { background: #343944; border: 1px solid #484f5e; border-radius: 6px; color: var(--ss-text); font-size: 10px; font-weight: 600; }
+#ss-sampler .sp-actions button.active, #ss-sampler .sp-toolbar button.on { background: #574665; color: #f0e3ff; border-color: #9a80bd; }
+#ss-sampler .sp-library { background: var(--ss-surface); border-color: var(--ss-border); }
+#ss-sampler .sp-library input, #ss-sampler .sp-library select { background: #1c2027; border-color: #464d5a; color: var(--ss-text); border-radius: 6px; }
+#ss-sampler .sp-library details { border-color: var(--ss-border); }
+#ss-sampler .sp-playing { background: #20232a; }
+#ss-sampler .sp-editor { background: #292d35; border-color: var(--ss-border); }
+#ss-sampler .sp-editor input:not([type=range]), #ss-sampler .sp-editor select { background: #1c2027; border: 1px solid #464d5a; color: var(--ss-text); border-radius: 5px; }
+#ss-sampler .sp-editor label { color: var(--ss-muted); }
+#ss-sampler .sp-sequence { border-color: var(--ss-border); background: #20232a; }
+#ss-sampler .sp-help { color: var(--ss-muted); }
+#ss-sampler .sp-jump, #ss-sampler .sp-seq-toolbar, #ss-sampler .sp-lane-label { background: #272b33; border-color: var(--ss-border); }
+#ss-sampler .sp-jump button, #ss-sampler .sp-mobile button, #ss-sampler .sp-ox-head button { background: #343944; border-color: #484f5e; border-radius: 6px; }
+#ss-sampler .sp-jump [data-action=jump-editor], #ss-sampler .sp-mobile button.on, #ss-sampler .sp-ox-head button.on { background: #51415f; border-color: #a48bbf; color: #f0e3ff; }
+#ss-sampler .sp-toolbar input[type=number], #ss-sampler .sp-actions input[type=number], #ss-sampler .sp-actions select, #ss-sampler .sp-keys-controls input { background: #1c2027; border-color: #464d5a; border-radius: 5px; }
+#ss-sampler .sp-sound button { background: #303540; border-color: #414855; border-radius: 5px; }
+#ss-sampler .sp-sound button:hover, #ss-sampler .sp-actions button:hover, #ss-sampler .sp-jump button:hover { background: #42394e; }
+#ss-sampler .sp-resizer { background: #383e49; }
+#ss-sampler .sp-ox-readout { background: #171b21; border-radius: 6px; border-color: #434a58; color: #e4d6bc; }
+#ss-sampler .sp-cells button { background: #30343f !important; border-color: #454c59; border-radius: 5px; }
+#ss-sampler .sp-cells button:nth-child(4n+1) { border-left-color: #7f7195 !important; }
+#ss-sampler .sp-cells button.on { background: #9673c0 !important; }
+#ss-sampler .sp-cells button.tail { background: #51425f !important; }
+#app-card .sp-clip { background: var(--ss-surface); border-color: #66537d; }
+#app-card .sp-clip header { background: var(--ss-panel); border-color: var(--ss-border); }
+#app-card .sp-clip button, #app-card .sp-clip select, #app-card .sp-clip textarea { background: #303540; border-color: #49505e; border-radius: 6px; }
+#app-card .sp-clip-words, #app-card .sp-clip .sp-wave-scroll { background: #191c23; border-color: var(--ss-border); }
+@media (min-width: 1100px) {
+  #app-card .dj-scroll[data-mode=decks] { display: grid; grid-template-columns: minmax(0,1fr) 400px; grid-template-rows: repeat(7,min-content); column-gap: 16px; row-gap: 12px; align-content: start; }
+  #app-card .dj-scroll[data-mode=decks] > .dj-intro { grid-column: 1/-1; grid-row: 1; }
+  #app-card .dj-scroll[data-mode=decks] > .screw-modes { grid-column: 1/-1; grid-row: 2; margin: 0; }
+  #app-card .dj-scroll[data-mode=decks] > .sg-launch { grid-column: 1/-1; grid-row: 3; margin: 0; }
+  #app-card .dj-scroll[data-mode=decks] > .tt-waves { grid-column: 1; grid-row: 4; margin: 0; }
+  #app-card .dj-scroll[data-mode=decks] > .dj-console { grid-column: 1; grid-row: 5; margin: 0; grid-template-columns: minmax(0,1fr) 150px minmax(0,1fr); gap: 12px; }
+  #app-card .dj-scroll[data-mode=decks] > .screw-box { grid-column: 2; grid-row: 4/9; margin: 0; align-self: start; }
+  #app-card .dj-scroll[data-mode=decks] > .dj-sync { grid-column: 1; grid-row: 6; margin: 0; }
+  #app-card .dj-scroll[data-mode=decks] > .dj-instructions { grid-column: 1; grid-row: 7; margin: 0; }
+  #app-card .dj-scroll[data-mode=decks] .screw-tools { gap: 7px; margin: 12px 0; }
+  #app-card .dj-scroll[data-mode=decks] .screw-tools label { flex: 1 1 115px; min-width: 0; }
+  #app-card .dj-scroll[data-mode=decks] .screw-tools button { flex: 1 1 auto; font-size: 10px; padding: 8px; }
+  #app-card .dj-scroll[data-mode=decks] .screw-tools input, #app-card .dj-scroll[data-mode=decks] .screw-tools select { width: 100%; }
+  #app-card .dj-scroll[data-mode=decks] .platter-bed { min-height: 200px; }
+  #app-card .dj-scroll[data-mode=decks] .vinyl { width: min(210px,80%); }
+}
+@media (max-width: 900px) {
+  html #app-shell { padding: 0; }
+  html #app-card { border: 0; border-radius: 0; }
+  #app-card .gb-studio { padding: 8px; gap: 7px; }
+  #app-card .gb-bar { padding: 7px; gap: 6px; }
+  #app-card .gb-group.gb-right { margin-left: 0; }
+  #app-card .gb-bar button { min-height: 34px; }
+  #app-card .gb-edit-bar { flex-wrap: wrap; }
+  #app-card .gb-edit-bar > span { width: 100%; }
+  #app-card .gb-edit-bar button { min-height: 32px; }
+}
+@media (max-width: 600px) {
+  #app-card .studio-brand { height: 48px; }
+  #app-card .studio-brand-copy { left: 12px; bottom: 9px; gap: 10px; }
+  #app-card .studio-brand-copy strong { font-size: 20px; }
+  #app-card .studio-brand-copy span { font-size: 6px; }
+  #app-card .workspace-heading { padding: 9px 12px !important; gap: 8px !important; }
+  #app-card .workspace-heading > div:first-child > div:last-child { font-size: 18px !important; }
+  #app-card .workspace-heading > div:first-child > div:first-child { font-size: 8px !important; }
+  #app-card .workspace-heading > div:last-child { gap: 5px !important; }
+  #app-card .workspace-heading > div:last-child > span { font-size: 7px !important; padding: 4px !important; }
+  #app-card .trill-help { width: 33px; height: 38px; }
+  #app-card .workspace-settings { width: 34px !important; height: 38px !important; }
+  #app-card .studio-tabs > button { font-size: 9px !important; letter-spacing: 0 !important; padding: 0 5px !important; min-height: 43px !important; }
+  #app-card .studio-transport { padding: 9px 12px; }
+  #app-card .transport-controls { gap: 8px; }
+  #app-card .transport-progress { flex: 1 1 100px; }
+  #app-card .transport-controls > label { flex: 1 1 70px; }
+  #ss-song-library { padding: 19px 12px 24px; }
+  #ss-song-library .ss-library-categories { border-radius: 13px 13px 0 0; }
+  #app-card .ss-notepad { padding: 18px 12px 24px; }
+  #app-card .np-top h2 { font-size: 23px; }
+  #app-card .np-desk { padding: 14px; }
+  #app-card .dj-scroll { padding: 12px 10px 24px; }
+  #app-card .screw-modes { top: -12px; }
+  #app-card .screw-modes button { font-size: 10px; }
+  #app-card .screw-box, #app-card .screw-stems { padding: 12px; }
+  #app-card .screw-tools label { flex: 1 1 135px; }
+  #app-card .screw-tools input, #app-card .screw-tools select, #app-card .screw-tools button { min-height: 42px; }
+  #app-card .screw-tools button { font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #app-card *, #app-card *::before, #app-card *::after { scroll-behavior: auto !important; }
+}
+
+/* Settings > DEVICES & FRIENDS: scan-to-connect codes for the iPhone */
+.ss-phone-qr { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; padding: 4px 16px 10px; }
+.ss-phone-qr figure { margin: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--ss-border); border-radius: 10px; background: var(--ss-panel); }
+.ss-phone-qr img { width: 168px; height: 168px; align-self: center; border-radius: 6px; background: #fff; image-rendering: pixelated; }
+.ss-phone-qr figcaption { font: 12px/1.5 var(--font-body); color: var(--ss-muted); }
+.ss-phone-qr figcaption b:first-child { display: block; margin-bottom: 2px; color: var(--ss-text); font-size: 13px; }

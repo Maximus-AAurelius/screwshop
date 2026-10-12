@@ -5,6 +5,7 @@ from playwright.sync_api import sync_playwright
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'scripts'))
 from local_server import make_server
+from song_source_helpers import upload_song, load_song_pad, drop_song_on_key
 
 with tempfile.TemporaryDirectory() as temp:
     audio=Path(temp)/'Sampler tone.wav'
@@ -25,12 +26,8 @@ with tempfile.TemporaryDirectory() as temp:
             page.evaluate('''() => {const tick=StudioWorkspace.prototype.tick;StudioWorkspace.prototype.tick=function(){window.sampler=this;return tick.call(this)}}''')
             page.wait_for_function('window.sampler?.ready')
             page.get_by_role('button',name='M-AUDIO / SAMPLER',exact=True).click()
-            page.locator('#ss-sampler [data-action=import]').wait_for()
-            with page.expect_file_chooser() as fc:page.locator('#ss-sampler [data-action=import]').click()
-            fc.value.set_files(str(audio))
-            page.locator('.sp-sound').filter(has_text='Sampler tone').first.wait_for(timeout=15000)
-            source=page.locator('.sp-sound').filter(has_text='Sampler tone').first
-            source.drag_to(page.locator('[data-pad="0"]'))
+            upload_song(page, audio, 'Sampler tone')
+            load_song_pad(page, 'Sampler tone', 0)
             page.wait_for_function('sampler.slots[0]?.name.includes("Sampler tone")')
             page.locator('[data-pad="0"]').click()
             page.wait_for_function('sampler.voices.size>0')
@@ -61,10 +58,10 @@ with tempfile.TemporaryDirectory() as temp:
             page.locator('[data-action=undo]').click()
             page.wait_for_function('sampler.slots[0]')
             # Drum mode keys accept independent assignments; instrument mode repitches one sound.
-            source.drag_to(page.locator('[data-note="49"]'))
+            drop_song_on_key(page, 'Sampler tone', '[data-note="49"]')
             page.wait_for_function('sampler.slots[1]')
             page.locator('[data-mode]').select_option('16')
-            source.drag_to(page.locator('[data-note="60"]'))
+            drop_song_on_key(page, 'Sampler tone', '[data-note="60"]')
             page.wait_for_function('sampler.slots[16]')
             # Actual MIDI callback, learn distinct keys, reconnect, sustain and note off.
             page.evaluate('''() => {window.port={name:'Test Oxygen',state:'connected'};navigator.requestMIDIAccess=async()=>({inputs:new Map([['test',port]])});}''')
@@ -101,8 +98,10 @@ with tempfile.TemporaryDirectory() as temp:
             page.locator('[data-action=play]').click()
             assert page.evaluate('sampler.pattern.events.length')>=3
             before=page.evaluate('sampler.pattern.events.length')
-            page.locator('[data-preview]').first.click()
+            page.get_by_role('button',name='SONGS',exact=True).click()
+            page.get_by_role('button',name='Preview Sampler tone',exact=True).click()
             assert page.evaluate('sampler.pattern.events.length')==before
+            page.get_by_role('button',name='M-AUDIO / SAMPLER',exact=True).click()
             # Pitched part, editable note lengths, offline WAV with audible samples.
             page.evaluate('''() => {sampler.checkpoint();sampler.pattern.events.push({id:'melody-test',lane:16,note:64,at:2,len:.5,velocity:80});sampler.changed();sampler.drawSequence()}''')
             page.once('dialog',lambda d:d.accept('Integration Kit'))
@@ -169,10 +168,8 @@ with tempfile.TemporaryDirectory() as temp:
             # Narrow touch alternative, editor scrolling, mobile sequence.
             page.set_viewport_size({'width':390,'height':844})
             page.get_by_role('button',name='M-AUDIO / SAMPLER',exact=True).first.click()
-            page.locator('[data-action=view-library]').click()
-            page.locator('[data-select]').first.click()
-            page.locator('[data-action=view-pads]').click()
-            page.locator('[data-pad="3"]').click()
+            page.get_by_role('button',name='Load from Songs',exact=True).click()
+            load_song_pad(page, 'Sampler tone', 3)
             page.wait_for_function('sampler.slots[3]')
             page.locator('[data-action=view-sequence]').click()
             page.locator('[data-cell="3:60:0"]').click()

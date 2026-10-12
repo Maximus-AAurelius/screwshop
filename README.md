@@ -4,12 +4,27 @@ One local music studio, formerly called **Rhymeflux** and **Barwork**.
 
 Open the **ScrewShop** desktop shortcut or `Start ScrewShop.cmd`.
 Your existing address still works: **http://localhost:5050/barwork**.
-The seven tabs are SONGS, WRITE, FLOW, BOOTH, SCREW, BEATS and PACKS.
+The five tabs are SONGS, NOTEPAD, STUDIO, SCREW and M-AUDIO / SAMPLER.
+
+## Write different songs
+
+In **NOTEPAD**, enter a **Song name** above the page and press **SAVE SONG**. Names and lyrics also autosave as you type. The **MY SONGS** side list shows your saved notebooks; click a song to return to its lyrics, or **+ NEW SONG** to start a blank page. Switching saves your current song first. On a phone, the list sits above the writing page.
+
+Your existing lyrics keep their original notebook. Each song saves separately on this computer and exports to its own Markdown file under `data/Obsidian/Songs/`. If saving fails, the notepad keeps a browser draft for recovery and lets you retry with **SAVE SONG**. These lyric notebooks share the existing audio workspace.
+
+## Songs, Studio mixes and clarity
+
+- **SONGS** is the shared browser for originals, Studio mixes, polished versions, split stems, recordings, sound packs and editable sampler saves.
+- **SAVE MIX TO SONGS** in STUDIO renders the current arrangement into a new reusable WAV. You can also name and save the current Studio mix from SONGS. Each save creates a new version and preserves the editable session.
+- In SONGS, use **Load sampler pad** or **Chop to pad** to work with an original or split stem. **LOAD FROM SONGS** in M-AUDIO / SAMPLER returns to this browser.
+- **Mix & clarity** accepts a dropped audio file, a file selected on your phone, or **Polish mix** on a saved song. Choose **Engineer mix** (AI split into vocals/drums/bass/music, per-stem engineer processing, vocal forward, mastered to -14 LUFS) or a whole-file polish (Balanced, Vocal clarity, Warm), with Gentle or Standard processing. The local queue creates a separate WAV and shows the original, result, and measured loudness/peak levels for comparison.
+
+See [the SONGS guide](docs/SONGS.md) for the workflow and processing details.
 
 ## Save and split
 
 1. In SONGS, import an MP3, WAV, M4A or other supported audio file.
-2. In PACKS, choose QUICK (vocals + instrumental) or FULL (vocals, drums, bass, guitar, piano, other, instrumental).
+2. In that song's **More** menu, choose **Quick split** (vocals + instrumental) or **Full split** (vocals, drums, bass, guitar, piano, other, instrumental).
 3. Keep this computer running. The processor starts automatically; failures appear in the page and can be retried.
 4. Play the output or assign it to a sampler pad. Sources and stems remain on this computer.
 
@@ -81,7 +96,10 @@ The original Git histories and remote repositories were not rewritten or pushed.
 - **LOOPS & FILES** lists split stems/sound-pack pieces and your SONGS. Drag one onto a track, or onto the empty bottom lane for a new track (on a phone, tap **+ ADD**).
 - **Clips** drag left/right (and between tracks) and snap to the beat; hold **Alt** for free placement. Drag a clip's **right edge** past its end to **loop** it (notches mark each repeat) or pull it in to trim. ⧉ duplicates a clip, × or Delete removes it (the audio file stays in SONGS/takes).
 - **CYCLE**: drag along the top strip of the ruler to set the yellow region; playback repeats it. **CLICK** = metronome, **COUNT-IN** = one bar of clicks before RECORD. Shortcuts: C cycle, K click, Ctrl+D duplicate.
-- **RECORD** adds a new vocal track at the playhead (cycle is ignored while recording). **TEMPO** sets the grid; it does not time-stretch audio.
+- **RECORD** adds a new vocal track at the playhead (cycle is ignored while recording).
+- **Speed (screwed)**: **SONG BPM** is the song's real tempo (grid + click). **PLAY AT**, the slider, or **-10% / -20% / -30%** slow the whole session; pitch drops with speed like a turntable. Recording keeps the speed, and takes are conformed so they stay in sync at any speed. Speed is saved and used by saves and exports.
+- **MIXER**: a channel strip per track (EQ, compressor, de-esser, saturation, reverb/delay sends, pan, fader) and a master bus (reverb, tempo-synced delay, glue compressor, gain, -1 dB limiter). Playback and exports use the same engine (`docs/mix-engine.js`, `docs/mix-worklet.js`).
+- **EXPORT MP3 → SONGS** masters to -14 LUFS / -1 dBTP, encodes 320 kbps, adds it to SONGS → Imported and saves `ScrewShop\mp3s\<name>.mp3`. See [docs/SONGS.md](docs/SONGS.md).
 - Sessions saved by the old STUDIO open automatically as one clip per track.
 
 ## SCREW room: lining up two records
@@ -94,7 +112,7 @@ The original Git histories and remote repositories were not rewritten or pushed.
 
 ## Current limits
 
-- WRITE still has one lyric session. SONGS is an audio library, not multi-song lyric documents yet.
+- NOTEPAD has separate named lyric notebooks. SONGS remains the shared audio library; Studio keeps one audio arrangement.
 - SCREW decks perform live; finished mix export is not implemented. No headphone/split cue (both decks go to one output) and no BPM detection on the decks. Deck positions/effects are not restored across reloads.
 - AMMO uses curated phrases and rhyme matching, not a generative AI service.
 - Rhyme editor and media controls retain the original custom design runtime. Its dynamic evaluation prevents using a strict no-eval CSP; keep code changes reviewed.

@@ -12,3 +12,4 @@ test-results/
 .env*
 !.env.example
 mp3s/
+Deleted Files/

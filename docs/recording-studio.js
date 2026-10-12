@@ -5,7 +5,7 @@
    #gb-arrange by this file, so dragging stays smooth and never re-renders the app. */
 window.RecordingStudio = class RecordingStudio {
   constructor(app) {
-    this.app = app; this.tracks = []; this.buffers = new Map(); this.voices = []; this.cursor = 0;
+    this.app = app; this.tracks = []; this.buffers = new Map(); this.voices = []; this.cursor = 0; this.mixNotes = [];
     this.playing = false; this.busy = false; this.ready = false; this.rate = 1;
     this.bpm = 82; this.cycle = { on: false, start: 0, end: 0 }; this.metronome = false; this.countIn = true;
     this.zoom = 26; // pixels per beat
@@ -67,6 +67,9 @@ window.RecordingStudio = class RecordingStudio {
         if (saved.countIn != null) this.countIn = !!saved.countIn;
         if (saved.zoom) this.zoom = +saved.zoom;
         if (saved.follow != null) this.follow = !!saved.follow;
+        if (+saved.rate > 0) this.rate = Math.max(0.25, Math.min(2, +saved.rate));
+        if (saved.mixMaster) this.mixMaster = window.ScrewMix.masterSettings(saved.mixMaster);
+        if (Array.isArray(saved.mixNotes)) this.mixNotes = saved.mixNotes.filter(n => n && typeof n.text === 'string');
       } else {
         const beats = await this.checked(this.app.sb.from('beats').select('*').eq('song_id', this.app.SONG_UUID).order('created_at', { ascending: false }));
         if (beats?.[0]?.storage_path) this.tracks.push(this.normalize({ id: 'beat', name: beats[0].label || 'Beat', url: this.url('beats', beats[0].storage_path), offset: 0, volume: 0.8 }));
@@ -82,7 +85,7 @@ window.RecordingStudio = class RecordingStudio {
 
   save() {
     const tracks = this.tracks.map(t => ({ ...t, clips: t.clips.map(({ loadError, ...c }) => c) }));
-    const body = { id: 'recording-session', version: 3, tracks, bpm: this.bpm, cycle: this.cycle, metronome: this.metronome, countIn: this.countIn, zoom: this.zoom, follow: this.follow };
+    const body = { id: 'recording-session', version: 3, tracks, bpm: this.bpm, cycle: this.cycle, metronome: this.metronome, countIn: this.countIn, zoom: this.zoom, follow: this.follow, rate: this.rate, mixMaster: this.mixMaster, mixNotes: this.mixNotes };
     this.saving = (this.saving || Promise.resolve()).catch(() => {}).then(() => this.checked(this.app.sb.from('settings').upsert(body))).catch(e => { this.notify('Session not saved: ' + e.message); throw e; });
     this.saving.catch(() => {});
     return this.saving;
@@ -156,8 +159,9 @@ window.RecordingStudio = class RecordingStudio {
   halt(reset = false) {
     this.cursor = reset ? 0 : this.position(); this.playing = false; this.plan = null;
     for (const voice of this.voices) { try { voice.source.stop(); } catch (_) {} try { voice.source.disconnect(); } catch (_) {} }
-    for (const g of this.trackGains?.values() || []) { try { g.disconnect(); } catch (_) {} }
-    this.voices = []; this.trackGains = new Map(); this.refresh();
+    for (const s of this.strips?.values() || []) s.dispose();
+    this.bus?.dispose(); this.bus = null;
+    this.voices = []; this.trackGains = new Map(); this.strips = new Map(); this.refresh();
   }
   async play(recording = false) {
     if (this.busy || !this.ready) return;
@@ -166,8 +170,14 @@ window.RecordingStudio = class RecordingStudio {
       const ctx = this.context(); await ctx.resume();
       await Promise.all(this.allClips().map(({ clip }) => this.decode(clip).catch(e => { clip.loadError = e.message; })));
       if (this.cursor >= this.contentEnd() && !recording && !this.cycle.on) this.cursor = 0;
-      this.trackGains = new Map();
-      for (const track of this.tracks) { const g = ctx.createGain(); g.gain.value = this.level(track); g.connect(this.master); this.trackGains.set(track.id, g); }
+      // Each track plays through its channel strip into the master bus (mix-engine.js); the click bypasses both.
+      await window.ScrewMix.ready(ctx);
+      this.trackGains = new Map(); this.strips = new Map();
+      this.bus =window.ScrewMix.master(ctx, this.mixMaster, this.master, this.beat() / this.rate);
+      for (const track of this.tracks) {
+        const strip = window.ScrewMix.track(ctx, track.mix, this.bus); strip.fader.gain.value = this.level(track);
+        this.strips.set(track.id, strip); this.trackGains.set(track.id, strip.input);
+      }
       this.t0 = ctx.currentTime + (recording ? 0 : 0.05); this.p0 = this.cursor; this.plan = this.cyclePlan(recording);
       this.playing = true;
       if (this.plan) {
@@ -204,16 +214,35 @@ window.RecordingStudio = class RecordingStudio {
     if (this.recording || this.busy) return;
     this.restartIfPlaying(() => { this.cursor = Math.max(0, Math.min(this.duration(), Number(value) || 0)); });
   }
-  setRate(value) { if (this.recording) return; this.restartIfPlaying(() => { this.rate = value; }); }
+  // Screw-style speed: every clip, the click and recording follow one varispeed, so pitch drops with tempo.
+  // `bpm` is the song's original tempo (the grid); playBpm() is what you hear.
+  setRate(value) {
+    value = +value; if (this.recording || !Number.isFinite(value)) return;
+    value = Math.max(0.25, Math.min(2, value));
+    this.restartIfPlaying(() => { this.rate = value; }); this.save();
+    this.app.setState({ beatRate: this.rate });
+  }
+  playBpm() { return Math.round(this.bpm * this.rate * 10) / 10; }
+  setPlayBpm(v) { v = +v; if (v >= 10 && v <= 600) this.setRate(v / this.bpm); }
 
   // ---------- editing ----------
   change(id, patch) {
     const track = this.tracks.find(t => t.id === id); if (!track) return;
     Object.assign(track, patch);
     const ctx = this.ctx;
-    if (ctx) for (const t of this.tracks) { const g = this.trackGains?.get(t.id); if (g) g.gain.setTargetAtTime(this.level(t), ctx.currentTime, 0.01); }
+    this.applyLevels();
     this.save(); this.refresh();
   }
+  applyLevels() {
+    if (this.ctx) for (const t of this.tracks) { const s = this.strips?.get(t.id); if (s) s.fader.gain.setTargetAtTime(this.level(t), this.ctx.currentTime, 0.01); }
+  }
+  // Mixer: channel-strip and master settings apply live while playing and save shortly after you stop moving a control.
+  setMix(trackId, mix) {
+    const track = this.tracks.find(t => t.id === trackId); if (!track) return;
+    track.mix = window.ScrewMix.trackSettings(mix); this.strips?.get(trackId)?.update(track.mix); this.saveSoon();
+  }
+  setMasterMix(mix) { this.mixMaster = window.ScrewMix.masterSettings(mix); this.bus?.update(this.mixMaster, this.beat() / this.rate); this.saveSoon(); }
+  saveSoon() { clearTimeout(this.mixSave); this.mixSave = setTimeout(() => this.save(), 400); }
   setBpm(v) {
     v = Math.round(+v); if (!(v >= 30 && v <= 300)) return;
     this.restartIfPlaying(() => { this.bpm = v; }); this.save();
@@ -227,38 +256,72 @@ window.RecordingStudio = class RecordingStudio {
     }); this.save();
   }
   hideTrackMenu() {
+    window.ItemMenu?.close(false);
     if (this.trackMenu) { this.trackMenu.remove(); this.trackMenu = null; }
   }
+  // Right-click (or double-click) a clip: everything you can do to that one clip.
+  showClipMenu(clipId, at, time = null) {
+    const found = this.findClip(clipId); if (!found) return;
+    const { clip, track } = found, locked = track.locked || this.recording || this.busy;
+    const why = track.locked ? 'Unlock this track first (🔒 on the track).' : 'Stop recording or loading first.';
+    this.selected = clip.id; this.refresh();
+    const inside = t => t != null && t > clip.start + 0.001 && t < clip.start + this.clipLen(clip) - 0.001;
+    const edit = (id, label, run, extra = {}) => ({ id, label, run, disabled: locked, why, ...extra });
+    const items = [
+      { id: 'play', label: 'Play from this clip', run: () => { this.seek(clip.start); return this.play(); } },
+      '-',
+      edit('rename', 'Rename…', () => this.renameClip(clip.id)),
+      edit('split-here', 'Split here', () => { this.splitPoint = { clipId: clip.id, time }; this.splitClipAtPlayhead(clip.id); }, { disabled: locked || !inside(time), why: locked ? why : 'Right-click inside the clip where you want the cut.' }),
+      edit('split-playhead', 'Split at playhead', () => { this.splitPoint = null; this.splitClipAtPlayhead(clip.id); }, { hint: 'Ctrl+T', disabled: locked || !inside(this.position()), why: locked ? why : 'Move the playhead inside this clip first.' }),
+      edit('split-new-track', 'Split here to a new track', () => { this.splitPoint = { clipId: clip.id, time }; this.splitClipToNewTrack(clip.id); }, { disabled: locked || !inside(time), why: locked ? why : 'Right-click inside the clip where you want the cut.' }),
+      '-',
+      edit('duplicate', 'Duplicate after itself', () => this.duplicateClip(clip.id), { hint: 'Ctrl+D' }),
+      { id: 'copy', label: 'Copy', hint: 'Ctrl+C', run: () => this.copyClip(clip.id) },
+      edit('cut', 'Cut', () => this.cutClip(clip.id), { hint: 'Ctrl+X' }),
+      edit('paste', 'Paste at playhead', () => this.pasteClip(track.id, this.cursor), { hint: 'Ctrl+V', disabled: locked || this.clipboard?.type !== 'clip', why: locked ? why : 'Copy a clip first.' }),
+      '-',
+      edit('loop-2', 'Repeat 2×', () => this.setClipLength(clip.id, this.audioLen(clip) * 2)),
+      edit('loop-4', 'Repeat 4×', () => this.setClipLength(clip.id, this.audioLen(clip) * 4)),
+      edit('full-length', 'Reset to full length', () => this.resetClipLength(clip.id), { disabled: locked || clip.length == null, why: locked ? why : 'This clip already plays its whole sound once.' }),
+      edit('new-track', 'Move to a new track', () => this.moveClip(clip.id, '__new', clip.start)),
+      '-',
+      { id: 'mute-track', label: 'Mute track “' + track.name + '”', checked: !!track.muted, run: () => this.change(track.id, { muted: !track.muted }) },
+      { id: 'solo-track', label: 'Solo track', checked: !!track.solo, run: () => this.change(track.id, { solo: !track.solo }) },
+      { id: 'lock-track', label: 'Lock track', checked: !!track.locked, run: () => this.toggleTrackLock(track.id) },
+      '-',
+      { id: 'chop', label: 'Chop a piece onto a pad…', run: () => { this.app.setState({ tab: 'packs' }); return this.app.workspace?.openClip({ name: clip.name, url: clip.url }); }, disabled: !this.app.workspace?.openClip, why: 'Open M-AUDIO once first.' },
+      '-',
+      edit('delete', 'Delete clip', () => this.deleteClip(clip.id), { danger: true, hint: 'Del' }),
+    ];
+    window.ItemMenu.show(at, items, { title: clip.name, label: 'Clip actions' });
+  }
+  // Double-click a track's header: track actions only (never acts on a clip you didn't pick).
   showTrackMenu(trackId, clipId, x = 0, y = 0) {
-    this.hideTrackMenu();
-    const track = this.tracks.find(t => t.id === trackId);
-    const found = clipId ? this.findClip(clipId) : null;
-    const clip = found?.clip || null;
-    const menu = document.createElement('div');
-    menu.id = 'gb-track-menu';
-    menu.className = 'gb-track-menu';
-    const actions = [
-      ['Split at playhead', () => this.splitClipAtPlayhead(clipId || found?.clip?.id || this.selected || track?.clips?.[0]?.id)],
-      ['Split to new track', () => this.splitClipToNewTrack(clipId || found?.clip?.id || this.selected || track?.clips?.[0]?.id)],
-      ['Duplicate', () => this.duplicateClip(clipId || found?.clip?.id || this.selected || track?.clips?.[0]?.id)],
-      ['Copy', () => this.copyClip(clipId || found?.clip?.id || this.selected || track?.clips?.[0]?.id)],
-      ['Paste', () => this.pasteClip(trackId, this.cursor)],
-      [track?.locked ? 'Unlock track' : 'Lock track', () => this.toggleTrackLock(trackId)],
-      ['Delete', () => clipId ? this.deleteClip(clipId) : this.deleteTrack(trackId)],
-      ['Mute', () => track && this.change(track.id, { muted: !track.muted })],
-      ['Solo', () => track && this.change(track.id, { solo: !track.solo })],
-    ].filter(([, fn]) => typeof fn === 'function');
-    menu.innerHTML = actions.map(([label]) => '<button type="button" data-track-action="' + label + '">' + label + '</button>').join('');
-    actions.forEach(([label, fn]) => {
-      const btn = Array.from(menu.querySelectorAll('button')).find(b => b.dataset.trackAction === label);
-      if (btn) btn.addEventListener('click', () => { fn(); this.hideTrackMenu(); });
-    });
-    Object.assign(menu.style, { position: 'fixed', left: x + 'px', top: y + 'px', zIndex: '99' });
-    document.body.appendChild(menu);
-    this.trackMenu = menu;
-    const bounds = menu.getBoundingClientRect();
-    menu.style.left = Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8)) + 'px';
-    menu.style.top = Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8)) + 'px';
+    if (clipId) return this.showClipMenu(clipId, { clientX: x, clientY: y }, this.splitPoint?.clipId === clipId ? this.splitPoint.time : null);
+    const track = this.tracks.find(t => t.id === trackId); if (!track) return;
+    const locked = track.locked || this.recording || this.busy;
+    window.ItemMenu.show({ clientX: x, clientY: y }, [
+      { id: 'paste', label: 'Paste at playhead', hint: 'Ctrl+V', run: () => this.pasteClip(track.id, this.cursor), disabled: locked || this.clipboard?.type !== 'clip', why: locked ? 'Unlock this track first.' : 'Copy a clip first.' },
+      '-',
+      { id: 'mute-track', label: 'Mute', checked: !!track.muted, run: () => this.change(track.id, { muted: !track.muted }) },
+      { id: 'solo-track', label: 'Solo', checked: !!track.solo, run: () => this.change(track.id, { solo: !track.solo }) },
+      { id: 'lock-track', label: 'Lock', checked: !!track.locked, run: () => this.toggleTrackLock(track.id) },
+      '-',
+      { id: 'delete-track', label: 'Delete track', danger: true, run: () => this.deleteTrack(track.id) },
+    ], { title: track.name, label: 'Track actions' });
+  }
+  renameClip(clipId) {
+    const found = this.findClip(clipId); if (!found || !this.editable(found.track)) return;
+    const name = prompt('Clip name', found.clip.name); if (name == null || !name.trim()) return;
+    this.checkpoint(); found.clip.name = name.trim().slice(0, 160); this.save(); this.refresh();
+  }
+  cutClip(clipId) {
+    const found = this.findClip(clipId); if (!found || !this.editable(found.track)) return;
+    this.copyClip(clipId); this.deleteClip(clipId, false); this.notify('Clip cut. Paste it with Ctrl+V or right-click → Paste at playhead.');
+  }
+  resetClipLength(clipId) {
+    const found = this.findClip(clipId); if (!found || !this.editable(found.track)) return; this.checkpoint();
+    this.restartIfPlaying(() => { found.clip.length = null; }); this.save(); this.refresh();
   }
   toggleTrackLock(trackId) {
     const track = this.tracks.find(t => t.id === trackId); if (!track) return;
@@ -347,36 +410,50 @@ window.RecordingStudio = class RecordingStudio {
     return this.palette(i);
   }
   palette(i) { return ['#62afe9', '#e9b457', '#b98af2', '#63d6b2', '#f27ab0', '#e8d45c', '#8fd16a', '#ff8a7a'][i % 8]; }
-  addTrack(name) {
+  addTrack(name, persist = true) {
     const n = this.tracks.length + 1;
     const track = { id: this.newId(), name: name || 'Track ' + n, volume: 0.8, muted: false, solo: false, clips: [] };
-    this.tracks.push(track); this.save(); this.refresh(); return track;
+    this.tracks.push(track);
+    if (persist) { this.save(); this.refresh(); }
+    return track;
   }
   deleteTrack(id) {
-    if (this.recording) return;
-    const t = this.tracks.find(x => x.id === id); if (!t) return;
+    const t = this.tracks.find(x => x.id === id); if (!this.editable(t)) return;
     if (t.clips.length && !confirm('Remove track "' + t.name + '" and its clips from the session? Your audio files stay in SONGS/takes.')) return;
+    this.checkpoint();
     this.restartIfPlaying(() => { this.tracks = this.tracks.filter(x => x.id !== id); }); this.save();
   }
   async addClip(trackId, item, start) {
+    if (this.recording || this.busy) { this.notify('Stop recording or loading before adding audio.'); return; }
+    let track = this.tracks.find(t => t.id === trackId);
+    if (track && !this.editable(track)) return;
     if (!item?.url) { this.notify('That file has no audio address yet.'); return; }
     const clip = { id: this.newId(), name: item.name || 'Clip', url: item.url, start: this.snap(start ?? this.cursor), length: null };
     try { await this.decode(clip); } catch (e) { this.notify('Could not load ' + clip.name + ': ' + e.message); return; }
     // Chops and word clips carry a trim: bring just that part, not the whole source file.
     if (Number.isFinite(item.end) && item.end > (item.start || 0)) { clip.sourceOffset = Math.max(0, item.start || 0); clip.length = item.end - clip.sourceOffset; }
-    let track = this.tracks.find(t => t.id === trackId);
+    // Loading may finish after a track was locked, removed, or recording began.
+    if (this.recording || this.busy) return;
+    track = this.tracks.find(t => t.id === trackId);
+    if (track && !this.editable(track)) return;
+    if (trackId && !track) return;
+    this.checkpoint();
     this.restartIfPlaying(() => {
-      if (!track) { track = this.addTrack(item.name); }
+      if (!track) { track = this.addTrack(item.name, false); }
       track.clips.push(clip);
     });
     this.selected = clip.id; this.save(); this.refresh();
+    return clip;
   }
   moveClip(clipId, trackId, start) {
-    const found = this.findClip(clipId); if (!found || !this.editable(found.track)) return; this.checkpoint();
+    const found = this.findClip(clipId); if (!found || !this.editable(found.track)) return;
+    const target = this.tracks.find(t => t.id === trackId);
+    if (target && !this.editable(target)) return;
+    this.checkpoint();
     this.restartIfPlaying(() => {
       found.clip.start = Math.max(0, start);
       let dest = this.tracks.find(t => t.id === trackId);
-      if (trackId === '__new') dest = this.addTrack(found.clip.name);
+      if (trackId === '__new') dest = this.addTrack(found.clip.name, false);
       if (dest && dest !== found.track) { found.track.clips = found.track.clips.filter(c => c !== found.clip); dest.clips.push(found.clip); }
     }); this.save();
   }
@@ -384,10 +461,17 @@ window.RecordingStudio = class RecordingStudio {
     const found = this.findClip(clipId); if (!found || !this.editable(found.track)) return; this.checkpoint();
     this.restartIfPlaying(() => { found.clip.length = Math.max(this.beat() / 4, len); }); this.save();
   }
-  deleteClip(clipId) {
+  deleteClip(clipId, offerUndo = true) {
     const found = this.findClip(clipId); if (!found || !this.editable(found.track)) return; this.checkpoint();
     this.restartIfPlaying(() => { found.track.clips = found.track.clips.filter(c => c !== found.clip); });
-    if (this.selected === clipId) this.selected = null; this.save();
+    if (this.selected === clipId) this.selected = null; this.save(); this.refresh();
+    // Only the arrangement changes: the audio stays in SONGS. UNDO puts this exact clip back.
+    if (offerUndo) window.ItemMenu?.undoable('Removed “' + found.clip.name + '” from the arrangement.', () => {
+      const track = this.tracks.find(t => t.id === found.track.id);
+      if (!track) { this.notify('That track is gone, so the clip can’t go back. Press Ctrl+Z to undo step by step.'); return; }
+      if (!this.editable(track) || this.findClip(found.clip.id)) return;
+      this.checkpoint(); this.restartIfPlaying(() => { track.clips.push(found.clip); }); this.selected = found.clip.id; this.save(); this.refresh();
+    });
   }
   duplicateClip(clipId) {
     const found = this.findClip(clipId); if (!found || !this.editable(found.track)) return; this.checkpoint();
@@ -435,9 +519,10 @@ window.RecordingStudio = class RecordingStudio {
       const ctx = this.context(); await ctx.resume();
       stream = input === 'midi' ? this.app.workspace.recordStream() : await navigator.mediaDevices.getUserMedia({ audio: true });
       await Promise.all(this.allClips().map(({ clip }) => this.decode(clip).catch(() => {})));
-      const offset = this.position(); this.app.stopPlayback(); this.cursor = offset; this.rate = 1;
-      if (this.countIn) { // one bar of clicks before the take starts
-        const b = this.beat(), at = ctx.currentTime + 0.05;
+      // Keep the chosen speed: you record over the slowed (screwed) session, and the take is conformed on save.
+      const offset = this.position(); this.app.stopPlayback(); this.cursor = offset;
+      if (this.countIn) { // one bar of clicks before the take starts, at the speed you hear
+        const b = this.beat() / this.rate, at = ctx.currentTime + 0.05;
         for (let i = 0; i < 4; i++) this.click(at + i * b, i === 0);
         this.app.setState({ notice: 'Count-in… 1 2 3 4' });
         await new Promise(r => setTimeout(r, (0.05 + 4 * b) * 1000));
@@ -447,13 +532,14 @@ window.RecordingStudio = class RecordingStudio {
       recorder.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
-        this.pending = { blob, offset: this.captureOffset, id: this.newId(), name: (input === 'midi' ? 'Oxygen performance ' : 'Vocal ') + (this.tracks.filter(t => t.id !== 'beat').length + 1) };
+        this.pending = { blob, offset: this.captureOffset, rate: this.rate, id: this.newId(), name: (input === 'midi' ? 'Oxygen performance ' : 'Vocal ') + (this.tracks.filter(t => t.id !== 'beat').length + 1) };
         this.app.setState({ rec: false, secs: 0 }); this.refresh(); await this.saveRecording();
       };
       this.recorder = recorder; this.recording = true; this.recordStarted = performance.now();
       this.busy = false; await this.play(true);
       // Align the clip with the shared audio clock at the instant capture starts.
-      recorder.start(); this.captureOffset = this.position();
+      // You sing to what you hear, which the mix engine delays slightly; place the take to match.
+      recorder.start(); this.captureOffset = Math.max(0, this.position() - window.ScrewMix.LATENCY * this.rate);
       this.app.setState({ tab: 'studio', rec: true, secs: 0 }); this.refresh();
     } catch (e) {
       stream?.getTracks().forEach(t => t.stop()); this.recording = false; this.halt();
@@ -468,9 +554,23 @@ window.RecordingStudio = class RecordingStudio {
     const pending = this.pending; if (!pending) return;
     this.busy = true; this.refresh();
     try {
-      const path = 'local/' + this.app.SONG_UUID + '/' + pending.id + (pending.blob.type.includes('mp4') ? '.m4a' : '.webm');
-      await this.checked(this.app.sb.storage.from('takes').upload(path, pending.blob));
-      const clip = { id: pending.id + '-clip', name: pending.name, url: this.url('takes', path), start: pending.offset, length: null };
+      const rawPath = 'local/' + this.app.SONG_UUID + '/' + pending.id + (pending.blob.type.includes('mp4') ? '.m4a' : '.webm');
+      await this.checked(this.app.sb.storage.from('takes').upload(rawPath, pending.blob));
+      let path = rawPath;
+      const r = pending.rate || 1;
+      if (Math.abs(r - 1) > 1e-4) {
+        // Recorded while the session played at speed r. Every clip plays back at r, so store the take
+        // varispeeded by 1/r: at speed r it sounds exactly as sung, and it stays locked to the beat at any speed.
+        path = rawPath.replace(/\.\w+$/, '-conformed.wav');
+        if (!this.buffers.has(this.url('takes', path))) {
+          const raw = await this.context().decodeAudioData(await pending.blob.arrayBuffer());
+          const off = new OfflineAudioContext(raw.numberOfChannels, Math.max(1, Math.ceil(raw.length * r)), raw.sampleRate);
+          const src = off.createBufferSource(); src.buffer = raw; src.playbackRate.value = 1 / r; src.connect(off.destination); src.start(0);
+          const conformed = await off.startRendering();
+          await this.checked(this.app.sb.storage.from('takes').upload(path, window.ScrewMix.wav(conformed)));
+        }
+      }
+      const clip = { id: pending.id + '-clip', name: pending.name, url: this.url('takes', path), start: pending.offset, length: null, recordedAtRate: r, rawUrl: path !== rawPath ? this.url('takes', rawPath) : undefined };
       await this.decode(clip);
       await this.checked(this.app.sb.from('takes').upsert({ id: pending.id, user_id: 'local', song_id: this.app.SONG_UUID, storage_path: path, duration_secs: clip.dur, offset_secs: clip.start, label: pending.name, bar_start: 0 }));
       if (!this.tracks.some(t => t.id === pending.id)) this.tracks.push({ id: pending.id, name: pending.name, volume: 0.8, muted: false, solo: false, clips: [clip] });
@@ -495,7 +595,7 @@ window.RecordingStudio = class RecordingStudio {
     if (this.recording) this.app.setState({ secs: Math.floor((performance.now() - this.recordStarted) / 1000) });
     const position = this.position(), b = this.beat();
     const bar = Math.floor(position / (b * 4)) + 1, beatIn = Math.floor(position / b) % 4 + 1, sixteenth = Math.floor(position / (b / 4)) % 4 + 1;
-    for (const el of document.querySelectorAll('[data-studio-clock]')) el.textContent = this.app.fmtTime(position) + ' / ' + this.app.fmtTime(Math.max(this.contentEnd(), position));
+    for (const el of document.querySelectorAll('[data-studio-clock]')) el.textContent = this.app.fmtTime(position / this.rate) + ' / ' + this.app.fmtTime(Math.max(this.contentEnd(), position) / this.rate); // real listening time at the current speed
     for (const el of document.querySelectorAll('[data-gb-bars]')) el.textContent = bar + '.' + beatIn + '.' + sixteenth;
     const host = document.getElementById('gb-arrange');
     if (host) {
@@ -611,7 +711,7 @@ window.RecordingStudio = class RecordingStudio {
     });
     host.addEventListener('input', e => {
       const t = e.target;
-      if (t.dataset.trackVol) { const track = this.tracks.find(x => x.id === t.dataset.trackVol); if (track) { track.volume = +t.value; const g = this.trackGains?.get(track.id); if (g) g.gain.setTargetAtTime(this.level(track), this.ctx.currentTime, 0.01); clearTimeout(this.volSave); this.volSave = setTimeout(() => this.save(), 400); } }
+      if (t.dataset.trackVol) { const track = this.tracks.find(x => x.id === t.dataset.trackVol); if (track) { track.volume = +t.value; this.applyLevels(); clearTimeout(this.volSave); this.volSave = setTimeout(() => this.save(), 400); } }
     });
     host.addEventListener('click', e => {
       const t = e.target.closest('button'); if (!t) return;
@@ -637,6 +737,12 @@ window.RecordingStudio = class RecordingStudio {
         const id = trackHead.querySelector('[data-track-name]')?.dataset?.trackName || lane?.dataset?.lane;
         if (id) this.showTrackMenu(id, null, e.clientX, e.clientY);
       }
+    });
+    host.addEventListener('contextmenu', e => {
+      const clip = e.target.closest('[data-clip]'); if (!clip || e.target.closest('input')) return;
+      e.preventDefault();
+      const lane = e.target.closest('[data-lane]');
+      this.showClipMenu(clip.dataset.clip, e, lane ? this.laneTime(lane, e.clientX) : null);
     });
     host.addEventListener('dragover', e => { const lane = e.target.closest('[data-lane]'); if (lane) { e.preventDefault(); host.querySelectorAll('.drop-hover').forEach(el => el.classList.remove('drop-hover')); lane.classList.add('drop-hover'); } });
     host.addEventListener('dragleave', e => { if (!host.contains(e.relatedTarget)) host.querySelectorAll('.drop-hover').forEach(el => el.classList.remove('drop-hover')); });
@@ -739,21 +845,27 @@ window.RecordingStudio = class RecordingStudio {
     const move = ev => drag.move(ev), up = ev => {
       window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
       host.querySelectorAll('.drop-hover').forEach(x => x.classList.remove('drop-hover'));
-      this.drag = null; drag.up(ev);
+      this.drag = null;
+      if (ev.type === 'pointercancel') this.refresh();
+      else drag.up(ev);
     };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
   }
   key(e) {
-    if (this.app.state?.tab !== 'studio' || e.target.closest?.('input,textarea,[contenteditable]')) return;
+    if (this.app.state?.tab !== 'studio' || e.target.closest?.('input,textarea,[contenteditable]') || window.ItemMenu?.isOpen()) return;
     if (e.key === 'Escape') { this.splitPoint = null; this.hideTrackMenu(); this.refresh(); return; }
     const mod = e.ctrlKey || e.metaKey;
     if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); this.undo(e.shiftKey); return; }
     if (mod && e.key.toLowerCase() === 't') { e.preventDefault(); this.splitClipAtPlayhead(this.selected); return; }
+    if (mod && e.key.toLowerCase() === 'c' && this.selected) { e.preventDefault(); this.copyClip(this.selected); return; }
+    if (mod && e.key.toLowerCase() === 'x' && this.selected) { e.preventDefault(); this.cutClip(this.selected); return; }
+    if (mod && e.key.toLowerCase() === 'v') { e.preventDefault(); this.pasteClip(this.findClip(this.selected)?.track.id || this.tracks[0]?.id, this.cursor); return; }
+    if (mod && e.key.toLowerCase() === 'd' && this.selected) { e.preventDefault(); this.duplicateClip(this.selected); return; }
+    if (mod) return; // leave other browser shortcuts alone
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selected) { e.preventDefault(); this.deleteClip(this.selected); }
     else if (e.key === 'c' || e.key === 'C') this.toggleCycle();
     else if (e.key === 'k' || e.key === 'K') this.toggleMetronome();
     else if ((e.key === 'f' || e.key === 'F') && !mod) this.toggleFollow();
-    else if ((e.key === 'd' || e.key === 'D') && (e.ctrlKey || e.metaKey) && this.selected) { e.preventDefault(); this.duplicateClip(this.selected); }
   }
   // Loop browser rows carry data-loop-url / data-loop-name; dragging one onto a lane adds a clip there.
   loopDragStart(e) {
@@ -777,7 +889,8 @@ window.RecordingStudio = class RecordingStudio {
   rows() { return this.tracks.map((t, i) => ({ id: t.id, name: t.name, number: i + 1 })); }
   dispose() {
     clearInterval(this.timer); this.stopRecord();
-    document.removeEventListener('keydown', this.onKey); document.removeEventListener('dragstart', this.onDragStart); window.removeEventListener('resize', this.onResize);
+    document.removeEventListener('keydown', this.onKey); document.removeEventListener('dragstart', this.onDragStart); document.removeEventListener('click', this.onMenuClick); window.removeEventListener('resize', this.onResize);
+    this.hideTrackMenu();
     this.ctx?.close();
   }
 };

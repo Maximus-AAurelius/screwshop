@@ -44,9 +44,10 @@ with tempfile.TemporaryDirectory() as temp:
               await sampler.refreshLibrary();}''')
             # Pad 3 already holds something, to check "Only fill empty pads".
             page.evaluate('''async () => {const x=sampler.folders[0].files[0];await sampler.assign(2,sampler.item(x));sampler.slots[2].name='keep me';sampler.changed();sampler.draw();}''')
-            load = page.locator('.sp-library [data-load-pack="split-test"]')
+            page.get_by_role('button', name='SONGS', exact=True).click()
+            load = page.locator('[data-entry="Split packs:split-test"] [data-library-action="open-pack"]')
             load.wait_for()
-            assert '(20)' in load.text_content()
+            assert '20 sounds' in page.locator('[data-entry="Split packs:split-test"]').text_content()
             load.click()
             dialog = page.locator('#sp-pack')
             dialog.wait_for()
@@ -98,7 +99,8 @@ with tempfile.TemporaryDirectory() as temp:
             page.evaluate('sampler.undo(true)')
             page.wait_for_function("sampler.slots[4]?.name === 'vocals'")
             # 7. Phone width.
-            page.locator('.sp-library [data-load-pack="split-test"]').click()
+            page.get_by_role('button', name='SONGS', exact=True).click()
+            page.locator('[data-entry="Split packs:split-test"] [data-library-action="open-pack"]').click()
             page.set_viewport_size({'width': 390, 'height': 844})
             page.wait_for_timeout(300)
             box = page.locator('#sp-pack').bounding_box()

@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
 from local_server import make_server
 import lyric_finder
+from song_source_helpers import upload_song, load_song_pad, song_row, open_song_chop
 
 
 def chrome_path():
@@ -40,27 +41,26 @@ with tempfile.TemporaryDirectory() as temp:
             page.wait_for_function('window.sampler?.ready')
             page.get_by_role('button', name='M-AUDIO / SAMPLER', exact=True).click()
             page.locator('#ss-sampler .ox-body').wait_for()
-            with page.expect_file_chooser() as fc:
-                page.locator('#ss-sampler [data-action=import]').click()
-            fc.value.set_files([str(vocal)])
-            page.locator('.sp-sound').filter(has_text='ugk vocals').first.wait_for(timeout=15000)
-            page.locator('.sp-sound').filter(has_text='ugk vocals').first.drag_to(page.locator('.ox-pad[data-pad="0"]'))
+            upload_song(page, vocal, 'ugk vocals')
+            load_song_pad(page, 'ugk vocals', 0)
             page.wait_for_function('sampler.slots[0]?.end')
             page.locator('.ox-pad[data-pad="0"]').click()
-            row = page.locator('.sp-library .sp-sound').filter(has_text='ugk vocals').first
+            page.get_by_role('button', name='SONGS', exact=True).click()
+            row = song_row(page, 'ugk vocals')
 
-            # 1. Library: an open Audio actions menu survives the 5-second background refresh.
-            row.locator('.sp-audio-actions summary').click()
-            menu = row.locator('.sp-audio-actions').element_handle()
+            # 1. Library: an open ⋮ menu survives the 5-second background refresh and a redraw.
+            row.locator('[data-row-menu]').click()
             page.evaluate('sampler.refreshLibrary()')
             page.wait_for_timeout(300)
-            assert page.evaluate('m => m.isConnected && m.open', menu), 'Audio actions closed by a refresh with no changes'
-            page.evaluate("sampler.samplerSignature=''; sampler.drawLibraryIfChanged()")  # a real change redraws
-            assert row.locator('.sp-audio-actions').evaluate('m => m.open'), 'Audio actions closed after a redraw'
+            page.evaluate("sampler.app.songLibrary.signature='';sampler.app.songLibrary.refresh()")
+            assert page.locator('.im-menu [data-action="chop"]').is_visible(), 'Actions menu closed after a redraw'
+            page.keyboard.press('Escape')
+            assert page.locator('.im-menu').count() == 0
 
             # 2. Clip words -> pad, from the library menu: tap the first and last word, hear it, save it.
             before = page.evaluate('sampler.slots[0]')
-            row.locator('[data-clip-words]').click()
+            open_song_chop(page, 'ugk vocals')
+            page.locator('#sp-clip [data-clip=words]').click()
             page.wait_for_function('sampler.clip?.words?.length', timeout=180000)
             words = page.evaluate('sampler.clip.words.map(w => w.word.toLowerCase().replace(/[^a-z]/g, ""))')
             first, last = words.index('still'), words.index('punk')
@@ -159,7 +159,7 @@ with tempfile.TemporaryDirectory() as temp:
             page.wait_for_function('sampler.clip?.words?.length && document.querySelector("#sp-clip").open')
             assert page.evaluate('sampler.clip.target') == 4, 'pads 2-4 hold clips, so pad 5 is offered'
             page.keyboard.press('Escape')
-            row.locator('[data-chop]').click()
+            open_song_chop(page, 'ugk vocals')
             page.wait_for_function('document.querySelector("#sp-clip").open && sampler.clip.words?.length')
             page.keyboard.press('Escape')
             page.locator('[data-action=jump-editor]').click()

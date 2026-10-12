@@ -6,18 +6,34 @@
 <title>ScrewShop</title>
 <link rel="stylesheet" href="/studio.css">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#140c20">
+<meta name="theme-color" content="#1b1d23">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="ScrewShop">
 <link rel="apple-touch-icon" href="/assets/icon-192.png">
 <script src="/vendor/react.production.min.js"></script>
 <script src="/vendor/react-dom.production.min.js"></script>
 <script src="/local-client.js"></script>
+<script src="/item-menu.js"></script>
+<script src="/mix-engine.js"></script>
 <script src="/recording-studio.js"></script>
+<script src="/studio-mixer.js"></script>
 <script src="/notepad.js"></script>
 <script src="/studio-workspace.js"></script>
 <script src="/sampler.js"></script>
+<script src="/song-library.js"></script>
+<link rel="stylesheet" href="/song-library.css">
+<link rel="stylesheet" href="/item-menu.css">
+<script src="/screw-chop.js"></script>
+<script src="/screw-stems.js"></script>
+<script src="/guide.js"></script>
+<script src="/guide-tours.js"></script>
+<script src="/screw-tables.js"></script>
+<script src="/screw-room.js"></script>
+<link rel="stylesheet" href="/screw-room.css">
 <link rel="stylesheet" href="/sampler.css">
+<link rel="stylesheet" href="/workspace.css">
+<link rel="stylesheet" href="/screw-controller.css">
+<link rel="stylesheet" href="/guide.css">
 <script src="./support.js"></script>
 </head>
 <body>
@@ -80,7 +96,7 @@ button:focus-visible,input:focus-visible{outline:2px solid #e2c6ff;outline-offse
 
 <sc-if value="{{ authed }}" hint-placeholder-val="{{ true }}">
 <div class="studio-brand"><img src="/assets/screwshop.png" alt="Screwed Up Records and Tapes storefront" /><div class="studio-brand-copy"><strong>SCREWSHOP</strong><span>HOUSTON IN THE SPEAKERS.<br>SLOW IT DOWN. MAKE IT YOURS.</span></div></div>
-<div style="flex:none;padding:max(20px, env(safe-area-inset-top)) 16px 14px;border-bottom:2px solid var(--color-divider);display:flex;align-items:flex-end;justify-content:space-between;gap:12px;background:var(--color-bg)">
+<div class="workspace-heading" style="flex:none;padding:max(20px, env(safe-area-inset-top)) 16px 14px;border-bottom:2px solid var(--color-divider);display:flex;align-items:flex-end;justify-content:space-between;gap:12px;background:var(--color-bg)">
 <div style="min-width:0">
 <div style="font:700 10px var(--font-heading);letter-spacing:.14em;color:var(--color-accent);text-transform:uppercase">{{ crumb }}</div>
 <div style="font:800 25px/1.1 var(--font-heading);letter-spacing:-.02em;color:var(--color-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ heading }}</div>
@@ -88,12 +104,18 @@ button:focus-visible,input:focus-visible{outline:2px solid #e2c6ff;outline-offse
 <div style="display:flex;gap:8px;flex:none;align-items:center">
 <span style="font:700 9px var(--font-heading);letter-spacing:.1em;color:{{ syncTone }};border:1px solid var(--color-divider);padding:5px 7px">{{ syncLabel }}</span>
 <button onClick="{{ openHelp }}" class="trill-help" aria-label="Open the Trill walkthrough" title="Let Trill show you around"><img src="/assets/trill.png" alt="Trill studio guide" /><span>GUIDE</span></button>
-<button onClick="{{ openSettings }}" style="width:44px;height:44px;border:1px solid var(--color-divider);background:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0" style-hover="background:rgba(32,30,29,.07)"><span style="display:block;width:16px;height:16px;border:2px solid var(--color-text);border-left-color:transparent;border-right-color:transparent"></span></button>
+<button onClick="{{ openSettings }}" class="workspace-settings" aria-label="Open settings" title="Settings and devices" style="width:44px;height:44px;border:1px solid var(--color-divider);background:transparent;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="var(--color-bg)"/><circle cx="16" cy="12" r="2" fill="var(--color-bg)"/><circle cx="8" cy="18" r="2" fill="var(--color-bg)"/></svg></button>
 </div>
 </div>
 
+<nav class="studio-tabs" aria-label="Workspace tabs" style="flex:none;display:flex;border-top:2px solid var(--color-divider);background:var(--color-neutral-100);padding-bottom:max(16px, env(safe-area-inset-bottom));position:relative;z-index:2">
+<sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+<button onClick="{{ t.onTap }}" aria-current="{{ t.current }}" style="flex:1;min-height:54px;border:0;border-right:1px solid var(--color-neutral-300);border-top:3px solid {{ t.mark }};background:transparent;color:{{ t.fg }};font:800 11px var(--font-heading);letter-spacing:.1em;cursor:pointer;padding:0 0 0 12px;text-align:left">{{ t.name }}</button>
+</sc-for>
+</nav>
+
 <sc-if value="{{ notice }}" hint-placeholder-val="{{ false }}">
-<div role="status" style="padding:10px 16px;background:#382047;color:#f4dcff;font:12px/1.5 system-ui;display:flex;gap:12px;align-items:center"><span style="flex:1">{{ notice }}</span><button onClick="{{ dismissNotice }}" style="background:transparent;color:inherit;border:1px solid currentColor;padding:8px">DISMISS</button></div>
+<div role="status" class="app-notice" style="padding:10px 16px;background:#382047;color:#f4dcff;font:12px/1.5 system-ui;display:flex;gap:12px;align-items:center"><span style="flex:1">{{ notice }}</span><button onClick="{{ dismissNotice }}" style="background:transparent;color:inherit;border:1px solid currentColor;padding:8px">DISMISS</button></div>
 </sc-if>
 <div id="studio-transport" class="studio-transport" role="region" aria-label="Global audio controls">
 <div class="transport-title">{{ transportTitle }}</div>
@@ -122,11 +144,17 @@ button:focus-visible,input:focus-visible{outline:2px solid #e2c6ff;outline-offse
 <div class="recording-workspace gb-studio">
 <div class="gb-bar" role="toolbar" aria-label="Studio controls">
 <div class="gb-group"><button onClick="{{ studioToStart }}" aria-label="Go to start" title="Go to start">⏮</button><button class="gb-play" onClick="{{ studioPlay }}" aria-label="{{ studioPlayLabel }}">{{ studioPlayIcon }}</button><button onClick="{{ studioStop }}" aria-label="Stop and return to start" title="Stop">■</button><button class="session-record" onClick="{{ recToggle }}" disabled="{{ studioBusy }}">{{ recLabel }}</button></div>
-<div class="gb-lcd" aria-label="Position"><b data-gb-bars="true">1.1.1</b><span data-studio-clock="true">0:00</span><small>{{ studioBpm }} BPM · 4/4</small></div>
+<div class="gb-lcd" aria-label="Position"><b data-gb-bars="true">1.1.1</b><span data-studio-clock="true">0:00</span><small>{{ studioPlayBpm }} BPM · 4/4</small></div>
 <div class="gb-group"><button onClick="{{ studioCycle }}" class="{{ studioCycleClass }}" title="Cycle (C): loop the yellow region in the ruler">⟲ CYCLE</button><button onClick="{{ studioMetro }}" class="{{ studioMetroClass }}" title="Metronome (K)">♩ CLICK</button><button onClick="{{ studioCountIn }}" class="{{ studioCountClass }}" title="One bar of clicks before recording">1234 COUNT-IN</button></div>
-<label class="gb-tempo">TEMPO<input aria-label="Project tempo" type="number" min="30" max="300" value="{{ studioBpm }}" onChange="{{ studioSetBpm }}" /></label>
+<div class="gb-speed" role="group" aria-label="Song speed">
+<label class="gb-tempo" title="The song's real tempo. Sets the grid and click; does not change the sound.">SONG BPM<input aria-label="Song BPM (original tempo)" type="number" min="30" max="300" value="{{ studioBpm }}" onChange="{{ studioSetBpm }}" /></label>
+<label class="gb-tempo gb-playbpm" title="Slow the whole session down. Screwed: pitch drops with the speed, like a turntable. Recording follows this speed.">PLAY AT<input aria-label="Play at BPM" type="number" min="10" max="600" step="0.1" value="{{ studioPlayBpm }}" onChange="{{ studioSetPlayBpm }}" /></label>
+<input class="gb-speed-slider" aria-label="Session speed" type="range" min="0.5" max="1.25" step="0.01" value="{{ studioRate }}" onChange="{{ studioSetRate }}" />
+<span class="gb-speed-read" data-studio-speed="true">{{ studioSpeedLabel }}</span>
+<button onClick="{{ studioSpeed100 }}" class="{{ studioSpeed100Class }}" title="Original speed">1×</button><button onClick="{{ studioSpeed90 }}" title="Slow 10%">-10%</button><button onClick="{{ studioSpeed80 }}" title="Slow 20%">-20%</button><button onClick="{{ studioSpeed70 }}" title="Slow 30% (heavy screw)">-30%</button>
+</div>
 <div class="gb-group"><button onClick="{{ studioZoomOut }}" aria-label="Zoom out" title="Zoom out (or Ctrl + scroll)">−</button><button onClick="{{ studioZoomIn }}" aria-label="Zoom in" title="Zoom in (or Ctrl + scroll, down to single samples)">+</button><button onClick="{{ studioZoomFit }}" aria-label="Fit whole song" title="Zoom out to fit the whole song">FIT</button><button onClick="{{ studioFollow }}" class="{{ studioFollowClass }}" aria-label="Follow playhead" title="F: when on, the view turns the page to keep the playhead in sight. Off keeps the view still while it plays.">⇥ FOLLOW</button></div>
-<div class="gb-group gb-right"><button onClick="{{ studioAddTrack }}">+ TRACK</button><button onClick="{{ studioImport }}">IMPORT AUDIO</button><button onClick="{{ studioSources }}" class="{{ studioLoopsClass }}">SOUND LIBRARY</button><button onClick="{{ studioOxygen }}">M-AUDIO / SAMPLER</button><button onClick="{{ studioExportMix }}">EXPORT MIX WAV</button><sc-if value="{{ studioHasMp3 }}"><button onClick="{{ studioExportMp3 }}">EXPORT MIX MP3</button></sc-if></div>
+<div class="gb-group gb-right"><button onClick="{{ studioMixer }}" title="Channel strips: EQ, compressor, de-esser, saturation, reverb/delay, pan, master bus">MIXER</button><button onClick="{{ studioAddTrack }}">+ TRACK</button><button onClick="{{ studioImport }}">IMPORT AUDIO</button><button onClick="{{ studioSources }}" class="{{ studioLoopsClass }}">SOUND LIBRARY</button><button onClick="{{ studioOxygen }}">M-AUDIO / SAMPLER</button><button onClick="{{ studioSaveToSongs }}">SAVE MIX TO SONGS</button><button onClick="{{ studioExportMix }}">EXPORT MIX WAV</button><sc-if value="{{ studioHasMp3 }}"><button onClick="{{ studioExportMp3 }}" title="Finished at -14 LUFS (streaming level). Lands in SONGS as an imported song and in the ScrewShop\mp3s folder.">EXPORT MP3 → SONGS</button></sc-if></div>
 </div>
 <sc-if value="{{ studioPending }}" hint-placeholder-val="{{ false }}"><button onClick="{{ studioRetry }}">RETRY SAVE RECORDING</button></sc-if>
 <div class="gb-edit-bar" role="toolbar" aria-label="Region editing"><button onClick="{{ studioSplit }}">&#9986; SPLIT</button><button onClick="{{ studioDeleteRegion }}">DELETE REGION</button><button onClick="{{ studioUndo }}">&#8630; UNDO</button><button onClick="{{ studioRedo }}">&#8631; REDO</button><span>Double-click for region options. Drag scissors down to cut. Drag the white triangle to position playback or edits.</span></div>
@@ -138,50 +166,25 @@ button:focus-visible,input:focus-visible{outline:2px solid #e2c6ff;outline-offse
 
 </div></sc-if>
 
-<sc-if value="{{ isScrew }}" hint-placeholder-val="{{ false }}"><div class="dj-scroll"><div class="dj-intro"><span>THE SCREW ROOM</span><small>Two records. One mix. Your pace.</small></div><sc-if value="{{ coachOpen }}" hint-placeholder-val="{{ false }}"><section class="dj-coach" aria-label="Trill mixing lessons"><div class="coach-tabs"><sc-for list="{{ coachGuides }}" as="g" hint-placeholder-count="3"><button onClick="{{ g.onTap }}" class="coach-tab" style="background:{{ g.bg }};color:{{ g.fg }}">{{ g.name }}</button></sc-for><button onClick="{{ closeCoach }}" class="coach-close" aria-label="Close Trill lessons">×</button></div><div class="coach-body"><img class="guide-avatar" src="/assets/trill.png" alt="Trill" /><div><small>TRILL · STEP {{ coachStepNo }} OF {{ coachStepCount }}</small><h4>{{ coachTitle }}</h4><p>{{ coachBody }}</p></div></div><div class="coach-nav"><button onClick="{{ prevCoach }}" style="color:{{ coachBackFg }}">← BACK</button><button onClick="{{ nextCoach }}" class="coach-next">{{ coachNextLabel }}</button></div></section></sc-if><sc-if value="{{ !coachOpen }}" hint-placeholder-val="{{ true }}"><button onClick="{{ openCoach }}" class="coach-open"><img src="/assets/trill.png" alt="" />LEARN TO MIX WITH TRILL →</button></sc-if><div class="dj-console"><section class="dj-deck" id="turntable-A">
-<div class="deck-heading"><strong>A</strong><span>{{ deckAName }}</span><button onClick="{{ loadDeckA }}" aria-label="Load deck A" style="box-shadow:{{ hlLoad }}">LOAD TRACK</button></div>
-<canvas id="deckA-canvas" width="700" height="64" onClick="{{ onDeckAClick }}" title="Click twice to mark a chop loop" style="box-shadow:{{ hlChop }}"></canvas>
-<canvas class="deck-clock" id="deckA-clock" width="700" height="80" aria-label="Deck A time" style="box-shadow:{{ hlClock }}"></canvas>
-<div class="platter-bed"><button class="vinyl" id="vinyl-A" onClick="{{ toggleDeckAPlay }}" aria-label="Play or pause deck A"><span class="record-label"><img src="/assets/purple-angel.png" alt="Purple Angel record label" /></span><span class="spindle"></span></button><div class="tonearm"></div><span class="rpm">SCREWSHOP · 33⅓</span></div>
-<div class="deck-buttons"><button onClick="{{ cueDeckA }}" aria-label="Cue deck A">CUE ↤</button><button class="deck-play" onClick="{{ toggleDeckAPlay }}" aria-label="Deck A playback" style="box-shadow:{{ hlPlay }}">{{ deckAPlayLabel }}</button><button onClick="{{ toggleDeckALoop }}" style="background:{{ deckALoopBg }};color:{{ deckALoopFg }}">CHOP</button><button onClick="{{ toggleDeckAReverb }}" style="background:{{ deckAReverbBg }};color:{{ deckAReverbFg }}">SYRUP</button></div>
-<label class="deck-speed" style="box-shadow:{{ hlSpeed }}">SCREW SPEED <b>{{ deckARateLabel }}</b><input aria-label="Deck A speed" type="range" min="0.25" max="2" step="0.01" value="{{ deckARate }}" onChange="{{ onDeckARate }}" /></label>
-</section><section class="dj-mixer"><h3>SCREWSHOP</h3><p>STEREO MIXER</p><div class="mixer-channels" style="box-shadow:{{ hlEq }}"><div class="mixer-channel"><strong>A</strong><label>TREBLE<input aria-label="Deck A treble" type="range" min="-24" max="12" step="1" value="{{ deckATreble }}" onChange="{{ onDeckATreble }}" /></label><label>BASS<input aria-label="Deck A bass" type="range" min="-24" max="12" step="1" value="{{ deckABass }}" onChange="{{ onDeckABass }}" /></label><label>LEVEL<input class="channel-fader" aria-label="Deck A level" type="range" min="0" max="1" step="0.01" value="{{ deckALevel }}" onChange="{{ onDeckALevel }}" /></label></div><div class="mixer-channel"><strong>B</strong><label>TREBLE<input aria-label="Deck B treble" type="range" min="-24" max="12" step="1" value="{{ deckBTreble }}" onChange="{{ onDeckBTreble }}" /></label><label>BASS<input aria-label="Deck B bass" type="range" min="-24" max="12" step="1" value="{{ deckBBass }}" onChange="{{ onDeckBBass }}" /></label><label>LEVEL<input class="channel-fader" aria-label="Deck B level" type="range" min="0" max="1" step="0.01" value="{{ deckBLevel }}" onChange="{{ onDeckBLevel }}" /></label></div></div><label class="crossfader" style="box-shadow:{{ hlXfade }}">A ← BLEND → B<input aria-label="Deck crossfader" type="range" min="-1" max="1" step="0.01" value="{{ crossfade }}" onChange="{{ onCrossfade }}" /></label><button onClick="{{ centerCrossfade }}">CENTER MIX</button></section><section class="dj-deck" id="turntable-B">
-<div class="deck-heading"><strong>B</strong><span>{{ deckBName }}</span><button onClick="{{ loadDeckB }}" aria-label="Load deck B" style="box-shadow:{{ hlLoad }}">LOAD TRACK</button></div>
-<canvas id="deckB-canvas" width="700" height="64" onClick="{{ onDeckBClick }}" title="Click twice to mark a chop loop" style="box-shadow:{{ hlChop }}"></canvas>
-<canvas class="deck-clock" id="deckB-clock" width="700" height="80" aria-label="Deck B time" style="box-shadow:{{ hlClock }}"></canvas>
-<div class="platter-bed"><button class="vinyl" id="vinyl-B" onClick="{{ toggleDeckBPlay }}" aria-label="Play or pause deck B"><span class="record-label"><img src="/assets/purple-angel.png" alt="Purple Angel record label" /></span><span class="spindle"></span></button><div class="tonearm"></div><span class="rpm">SCREWSHOP · 33⅓</span></div>
-<div class="deck-buttons"><button onClick="{{ cueDeckB }}" aria-label="Cue deck B">CUE ↤</button><button class="deck-play" onClick="{{ toggleDeckBPlay }}" aria-label="Deck B playback" style="box-shadow:{{ hlPlay }}">{{ deckBPlayLabel }}</button><button onClick="{{ toggleDeckBLoop }}" style="background:{{ deckBLoopBg }};color:{{ deckBLoopFg }}">CHOP</button><button onClick="{{ toggleDeckBReverb }}" style="background:{{ deckBReverbBg }};color:{{ deckBReverbFg }}">SYRUP</button></div>
-<label class="deck-speed" style="box-shadow:{{ hlSpeed }}">SCREW SPEED <b>{{ deckBRateLabel }}</b><input aria-label="Deck B speed" type="range" min="0.25" max="2" step="0.01" value="{{ deckBRate }}" onChange="{{ onDeckBRate }}" /></label>
-</section></div><section class="dj-sync" aria-label="Line up both decks"><div class="sync-group" style="box-shadow:{{ hlBoth }}"><span>BOTH DECKS</span><div><button onClick="{{ playBothDecks }}" class="sync-go">▶ PLAY BOTH</button><button onClick="{{ pauseBothDecks }}">❚❚ PAUSE BOTH</button><button onClick="{{ stopBothDecks }}">■ STOP BOTH</button></div></div><div class="sync-group" style="box-shadow:{{ hlMatch }}"><span>LINE UP B WITH A</span><div><button onClick="{{ matchBtoA }}">MATCH B → A</button></div></div><div class="sync-group" style="box-shadow:{{ hlNudge }}"><span>NUDGE B · ◀ BEHIND · AHEAD ▶</span><div><sc-for list="{{ nudgeOpts }}" as="n" hint-placeholder-count="6"><button onClick="{{ n.onTap }}" aria-label="{{ n.aria }}">{{ n.label }}</button></sc-for></div></div></section><p class="dj-instructions">Each deck's clock shows where you are (big number, left), time left (right) and the song's length. LOAD TRACK on each deck, tap a record to play, then blend A and B with the crossfader. PLAY BOTH / PAUSE BOTH / STOP BOTH run the decks together, MATCH B → A puts deck B at deck A's spot and speed, and NUDGE moves B behind or ahead. CUE returns to the beginning. Click a waveform twice to mark a loop and enable CHOP. SYRUP adds reverb. Slowing a record lowers both pitch and tempo.</p><p class="dj-output">OUTPUT · Both decks → your computer’s selected speakers or headphones. The top Record button captures your microphone.</p></div></sc-if>
+<sc-if value="{{ isScrew }}" hint-placeholder-val="{{ false }}"><div class="dj-scroll"><div class="dj-intro"><span>THE SCREW ROOM</span><small>Slow it down. Chop it up. Run it back.</small></div><div class="dj-console"><section class="dj-deck" id="turntable-A">
+<div class="deck-heading"><strong>A</strong><span>{{ deckAName }}</span><button onClick="{{ loadDeckA }}" aria-label="Load deck A">LOAD TRACK</button></div>
+<canvas id="deckA-canvas" width="700" height="64" onClick="{{ onDeckAClick }}" title="Click to seek; Shift-click twice to mark a chop loop"></canvas>
+<canvas class="deck-clock" id="deckA-clock" width="700" height="80" aria-label="Deck A time"></canvas>
+<div class="platter-bed"><button class="vinyl" id="vinyl-A" aria-label="Jog wheel A: drag the top to scratch, the outer ring to nudge"><span class="record-label"><img src="/assets/purple-angel.png" alt="Purple Angel record label" /></span><span class="spindle"></span></button><div class="tonearm"></div><span class="rpm">SCREWSHOP · 33⅓</span><label class="deck-speed tt-pitch"><span>− SLOW</span><input aria-label="Deck A speed" type="range" min="0.25" max="2" step="0.001" value="{{ deckARate }}" onChange="{{ onDeckARate }}" /><span>+ FAST</span><b>{{ deckARateLabel }}</b></label></div>
+<div class="deck-buttons"><button onClick="{{ cueDeckA }}" aria-label="Cue deck A">CUE ↤</button><button class="deck-play" onClick="{{ toggleDeckAPlay }}" aria-label="Deck A playback">{{ deckAPlayLabel }}</button><button onClick="{{ toggleDeckALoop }}" style="background:{{ deckALoopBg }};color:{{ deckALoopFg }}">CHOP</button><button onClick="{{ toggleDeckAReverb }}" style="background:{{ deckAReverbBg }};color:{{ deckAReverbFg }}">SYRUP</button></div>
+
+</section><section class="dj-mixer"><h3>SCREWSHOP</h3><p>STEREO MIXER</p><div class="mixer-channels"><div class="mixer-channel"><strong>A</strong><label>TREBLE<input aria-label="Deck A treble" type="range" min="-24" max="12" step="1" value="{{ deckATreble }}" onChange="{{ onDeckATreble }}" /></label><label>BASS<input aria-label="Deck A bass" type="range" min="-24" max="12" step="1" value="{{ deckABass }}" onChange="{{ onDeckABass }}" /></label><label>LEVEL<input class="channel-fader" aria-label="Deck A level" type="range" min="0" max="1" step="0.01" value="{{ deckALevel }}" onChange="{{ onDeckALevel }}" /></label></div><div class="mixer-channel"><strong>B</strong><label>TREBLE<input aria-label="Deck B treble" type="range" min="-24" max="12" step="1" value="{{ deckBTreble }}" onChange="{{ onDeckBTreble }}" /></label><label>BASS<input aria-label="Deck B bass" type="range" min="-24" max="12" step="1" value="{{ deckBBass }}" onChange="{{ onDeckBBass }}" /></label><label>LEVEL<input class="channel-fader" aria-label="Deck B level" type="range" min="0" max="1" step="0.01" value="{{ deckBLevel }}" onChange="{{ onDeckBLevel }}" /></label></div></div><label class="crossfader">A ← BLEND → B<input aria-label="Deck crossfader" type="range" min="-1" max="1" step="0.01" value="{{ crossfade }}" onChange="{{ onCrossfade }}" /></label><button onClick="{{ centerCrossfade }}">CENTER MIX</button></section><section class="dj-deck" id="turntable-B">
+<div class="deck-heading"><strong>B</strong><span>{{ deckBName }}</span><button onClick="{{ loadDeckB }}" aria-label="Load deck B">LOAD TRACK</button></div>
+<canvas id="deckB-canvas" width="700" height="64" onClick="{{ onDeckBClick }}" title="Click to seek; Shift-click twice to mark a chop loop"></canvas>
+<canvas class="deck-clock" id="deckB-clock" width="700" height="80" aria-label="Deck B time"></canvas>
+<div class="platter-bed"><button class="vinyl" id="vinyl-B" aria-label="Jog wheel B: drag the top to scratch, the outer ring to nudge"><span class="record-label"><img src="/assets/purple-angel.png" alt="Purple Angel record label" /></span><span class="spindle"></span></button><div class="tonearm"></div><span class="rpm">SCREWSHOP · 33⅓</span><label class="deck-speed tt-pitch"><span>− SLOW</span><input aria-label="Deck B speed" type="range" min="0.25" max="2" step="0.001" value="{{ deckBRate }}" onChange="{{ onDeckBRate }}" /><span>+ FAST</span><b>{{ deckBRateLabel }}</b></label></div>
+<div class="deck-buttons"><button onClick="{{ cueDeckB }}" aria-label="Cue deck B">CUE ↤</button><button class="deck-play" onClick="{{ toggleDeckBPlay }}" aria-label="Deck B playback">{{ deckBPlayLabel }}</button><button onClick="{{ toggleDeckBLoop }}" style="background:{{ deckBLoopBg }};color:{{ deckBLoopFg }}">CHOP</button><button onClick="{{ toggleDeckBReverb }}" style="background:{{ deckBReverbBg }};color:{{ deckBReverbFg }}">SYRUP</button></div>
+
+</section></div><section class="dj-sync" aria-label="Line up both decks"><div class="sync-group"><span>BOTH DECKS</span><div><button onClick="{{ playBothDecks }}" class="sync-go">▶ PLAY BOTH</button><button onClick="{{ pauseBothDecks }}">❚❚ PAUSE BOTH</button><button onClick="{{ stopBothDecks }}">■ STOP BOTH</button></div></div><div class="sync-group"><span>LINE UP B WITH A</span><div><button onClick="{{ matchBtoA }}">MATCH B → A</button></div></div></section><p class="dj-instructions">Drag a record to scratch · click a waveform to seek · Shift-click twice + CHOP to loop · SYRUP = reverb · each clock shows where B sits against A.</p></div></sc-if>
 
 <sc-if value="{{ isPacks }}" hint-placeholder-val="{{ false }}"><div id="ss-sampler" aria-label="M-Audio / Sampler"></div></sc-if>
 
-<sc-if value="{{ isSongs }}" hint-placeholder-val="{{ false }}">
-<div style="flex:1;min-height:0;overflow:auto"><div style="padding:0 0 120px">
-<div style="display:flex;border-bottom:2px solid var(--color-divider)">
-<button onClick="{{ uploadToLibrary }}" style="flex:1;padding:14px 16px;border:0;background:var(--color-accent);color:var(--color-bg);font:800 12px var(--font-heading);letter-spacing:.1em;text-align:left;cursor:pointer" style-hover="background:var(--color-accent-600)">+ UPLOAD FILE</button>
-</div>
-<sc-if value="{{ hasLibrary }}" hint-placeholder-val="{{ false }}">
-<sc-for list="{{ library }}" as="f" hint-placeholder-count="4">
-<div style="border-bottom:1px solid var(--color-neutral-300);padding:14px 16px">
-<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-<input value="{{ f.name }}" onChange="{{ f.onRename }}" style="flex:1;min-width:0;border:0;background:transparent;font:800 16px var(--font-heading);letter-spacing:-.01em;color:var(--color-text);padding:0;outline:none" />
-<span style="flex:none;padding-top:3px;font:700 10px var(--font-heading);letter-spacing:.1em;color:var(--color-neutral-600)">{{ f.when }}</span>
-</div>
-<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
-<button onClick="{{ f.onSetBeat }}" style="padding:8px 12px;border:1px solid var(--color-divider);background:transparent;color:var(--color-text);font:800 9px var(--font-heading);letter-spacing:.08em;cursor:pointer">SET AS BEAT</button>
-<button onClick="{{ f.onDeckA }}" style="padding:8px 12px;border:1px solid var(--color-divider);background:transparent;color:var(--color-text);font:800 9px var(--font-heading);letter-spacing:.08em;cursor:pointer">→ DECK A</button>
-<button onClick="{{ f.onDeckB }}" style="padding:8px 12px;border:1px solid var(--color-divider);background:transparent;color:var(--color-text);font:800 9px var(--font-heading);letter-spacing:.08em;cursor:pointer">→ DECK B</button>
-<button onClick="{{ f.onDelete }}" style="padding:8px 12px;border:0;background:transparent;color:var(--color-neutral-600);font:800 9px var(--font-heading);letter-spacing:.08em;cursor:pointer">DELETE</button>
-</div>
-</div>
-</sc-for>
-</sc-if>
-<sc-if value="{{ noLibrary }}" hint-placeholder-val="{{ true }}">
-<div style="padding:16px;font:11px/1.5 var(--font-body);color:var(--color-neutral-600)">Nothing here yet — upload an MP3 or WAV to build your project folder. From here you can set a file as your beat, load it onto a SCREW deck, or split it into sound packs in M-Audio / Sampler.</div>
-</sc-if>
-</div></div>
-</sc-if>
+<sc-if value="{{ isSongs }}" hint-placeholder-val="{{ false }}"><div id="ss-song-library" aria-label="Songs and files"></div></sc-if>
 
 <sc-if value="{{ drawer }}" hint-placeholder-val="{{ false }}">
 <div style="position:absolute;left:0;right:0;top:0;bottom:0;background:rgba(32,30,29,.35);z-index:5" onClick="{{ closeDrawer }}"></div>
@@ -239,7 +242,7 @@ button:focus-visible,input:focus-visible{outline:2px solid #e2c6ff;outline-offse
 <div style="flex:1;min-height:0;overflow:auto;padding:20px 16px">
 <div style="font:800 22px/1.15 var(--font-heading);letter-spacing:-.02em;margin-bottom:12px">{{ helpTitle }}</div>
 <div style="font:15px/1.6 var(--font-body);color:var(--color-neutral-700)">{{ helpBody }}</div>
-<button onClick="{{ openCoachFromHelp }}" class="coach-open" style="margin-top:18px">LEARN TO MIX WITH TRILL (SCREW ROOM) →</button>
+
 </div>
 <div style="flex:none;display:flex;border-top:2px solid var(--color-divider)">
 <button onClick="{{ prevHelp }}" style="flex:1;padding:16px;border:0;border-right:1px solid var(--color-neutral-300);background:transparent;color:{{ helpBackFg }};font:800 12px var(--font-heading);letter-spacing:.1em;text-align:left;cursor:pointer">← BACK</button>
@@ -278,9 +281,15 @@ button:focus-visible,input:focus-visible{outline:2px solid #e2c6ff;outline-offse
 <div style="display:flex;align-items:center;gap:10px;padding:0 16px 12px"><div style="font:900 26px ui-monospace,Consolas,monospace;letter-spacing:.12em;color:var(--color-text)" data-pair-code="true">{{ pairCode }}</div><button onClick="{{ newPairCode }}" style="border:1px solid var(--color-divider);background:transparent;color:var(--color-text);font:800 10px var(--font-heading);letter-spacing:.08em;padding:9px 12px;cursor:pointer">NEW CODE</button></div>
 <sc-for list="{{ deviceRows }}" as="d" hint-placeholder-count="1"><div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-top:1px solid var(--color-neutral-300)"><div style="flex:1;min-width:0"><div style="font:700 13px var(--font-body)">{{ d.name }}</div><div style="font:11px var(--font-body);color:var(--color-neutral-600)">{{ d.seen }}</div></div><button onClick="{{ d.remove }}" style="border:1px solid var(--color-divider);background:transparent;color:var(--color-accent-700);font:800 10px var(--font-heading);padding:8px 10px;cursor:pointer">REMOVE</button></div></sc-for>
 <sc-if value="{{ noDevices }}" hint-placeholder-val="{{ false }}"><div style="padding:6px 16px 10px;font:12px var(--font-body);color:var(--color-neutral-600)">No phones or friends paired.</div></sc-if>
-<div style="padding:10px 16px 4px;font:700 10px var(--font-heading);letter-spacing:.1em;color:var(--color-neutral-600)">HOME WI-FI (phone)</div>
+<div style="padding:10px 16px 4px;font:700 10px var(--font-heading);letter-spacing:.1em;color:var(--color-neutral-600)">YOUR iPHONE ON HOME WI-FI</div>
+<div style="padding:0 16px 8px;font:12px/1.5 var(--font-body);color:var(--color-neutral-600)">Phone on the same Wi-Fi as this computer. Open the iPhone <b>Camera</b> and point it at each code. Full steps: docs/IPHONE-SETUP.md</div>
+<div class="ss-phone-qr">
+<figure><img src="/api/qr?link=profile" loading="lazy" width="168" height="168" alt="QR code: install the ScrewShop certificate profile" /><figcaption><b>1 · Install the profile</b>Scan, tap the yellow link (it must open in <b>Safari</b>), <b>Allow</b>. Then iPhone Settings → Profile Downloaded → Install. Then Settings → General → About → Certificate Trust Settings → turn on <b>ScrewShop Private Local CA</b>.</figcaption></figure>
+<figure><img src="/api/qr?link=studio" loading="lazy" width="168" height="168" alt="QR code: open ScrewShop on the iPhone" /><figcaption><b>2 · Open the studio &amp; pair</b>Scan, open in Safari, type your name and the code above. Then Share → <b>Add to Home Screen</b>.</figcaption></figure>
+</div>
 <sc-for list="{{ profileLinks }}" as="l" hint-placeholder-count="1"><div style="padding:2px 16px;font:12px ui-monospace,Consolas,monospace;word-break:break-all">1. profile: {{ l.url }}</div></sc-for>
 <sc-for list="{{ phoneLinks }}" as="l" hint-placeholder-count="1"><div style="padding:2px 16px;font:12px ui-monospace,Consolas,monospace;word-break:break-all">2. studio: {{ l.url }}</div></sc-for>
+<div style="padding:4px 16px 10px;font:11px/1.5 var(--font-body);color:var(--color-neutral-600)">Phone says it can't open the page? Run <b>Fix Phone Network.cmd</b> once on this computer, then <b>Phone Check.cmd</b>.</div>
 <div style="padding:10px 16px 4px;font:700 10px var(--font-heading);letter-spacing:.1em;color:var(--color-neutral-600)">FRIENDS ANYWHERE (Tailscale)</div>
 <sc-if value="{{ hasTailscale }}" hint-placeholder-val="{{ false }}"><div style="padding:2px 16px;font:12px ui-monospace,Consolas,monospace;word-break:break-all">{{ tailscaleLink }}</div><div style="padding:2px 16px 8px;font:11px var(--font-body);color:var(--color-neutral-600)">{{ tailscaleNote }}</div></sc-if>
 <sc-if value="{{ !hasTailscale }}" hint-placeholder-val="{{ true }}"><div style="padding:2px 16px 8px;font:12px/1.5 var(--font-body);color:var(--color-neutral-600)">Not set up. See docs/FRIENDS-SETUP.md, then restart ScrewShop.</div></sc-if>
@@ -293,11 +302,7 @@ button:focus-visible,input:focus-visible{outline:2px solid #e2c6ff;outline-offse
 </div>
 </sc-if>
 
-<div class="studio-tabs" style="flex:none;display:flex;border-top:2px solid var(--color-divider);background:var(--color-neutral-100);padding-bottom:max(16px, env(safe-area-inset-bottom));position:relative;z-index:2">
-<sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
-<button onClick="{{ t.onTap }}" style="flex:1;min-height:54px;border:0;border-right:1px solid var(--color-neutral-300);border-top:3px solid {{ t.mark }};background:transparent;color:{{ t.fg }};font:800 11px var(--font-heading);letter-spacing:.1em;cursor:pointer;padding:0 0 0 12px;text-align:left">{{ t.name }}</button>
-</sc-for>
-</div>
+
 </sc-if>
 </div></div>
 
@@ -343,7 +348,7 @@ class Component extends DCLogic {
     pads: Array.from({ length: 8 }, () => ({ name: "", loaded: false, hit: false })),
     sequencerSteps: Array.from({ length: 8 }, () => Array(16).fill(false)),
     seqPlaying: false, seqBpm: 90, seqStep: -1,
-    helpOpen: false, helpStep: 0, coachOpen: false, coachGuide: "blend", coachStep: 0,
+    helpOpen: false, helpStep: 0,
     packExports: [],
     allStems: [], packBeatId: null, splitJobs: {}
   };
@@ -430,6 +435,9 @@ class Component extends DCLogic {
     this.studio?.dispose();
     this.notepad?.dispose();
     this.workspace?.dispose();
+    this.screwRoom?.dispose();
+    this.guide?.dispose();
+    this.songLibrary?.dispose();
     Object.values(this._jobTimers || {}).forEach(clearTimeout);
     window.removeEventListener("screwshop-status", this._statusListener);
     clearInterval(this._t);
@@ -438,6 +446,8 @@ class Component extends DCLogic {
     if (this._Tone) { try { this._Tone.getTransport().stop(); } catch (e) {} }
   }
   componentDidMount() {
+    // Reconnect the keyboard after a reload once Chrome has already allowed MIDI for this site.
+    navigator.permissions?.query({ name: "midi" }).then(p => { if (p.state === "granted") this.initMidi(); }).catch(() => {});
     // The engine loads async and the editor never waits on it: until it lands,
     // the local spelling heuristic below keeps colouring and counting.
     const _rfBase = document.baseURI;
@@ -452,6 +462,9 @@ class Component extends DCLogic {
     this.studio = new window.RecordingStudio(this);
     this.notepad = new window.ScrewShopNotepad(this);
     this.workspace = new window.StudioWorkspace(this);
+    this.screwRoom = new window.ScrewRoom(this);
+    this.songLibrary = new window.SongLibrary(this);
+    this.guide = new window.ScrewGuide(this);
     this.connectLocal();
     if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("/sw.js").catch(() => {});
   }
@@ -504,21 +517,7 @@ class Component extends DCLogic {
         if (signed) this.loadPadFromUrl(row.pad_index, signed.signedUrl, row.label);
       }
     }
-    const uid = this.state.session.user.id;
-    const { data: song } = await this.sb.from("songs").select("*").eq("id", this.SONG_UUID).maybeSingle();
-    if (song && song.meta) {
-      try { const parsed = JSON.parse(song.meta); if (Array.isArray(parsed.lines)) this.setState({ lines: parsed.lines }); } catch (e) {}
-    } else {
-      await this.sb.from("songs").upsert({ id: this.SONG_UUID, user_id: uid, title: "MAP OF THE CITY", meta: JSON.stringify({ lines: this.state.lines }) });
-    }
-
-    try {
-      const draft = JSON.parse(localStorage.getItem("screwshop-draft") || "null");
-      if (draft && Array.isArray(draft.lines) && draft.at > Date.parse(song?.updated_at || "1970-01-01")) {
-        this.setState({ lines: draft.lines, notice: "Recovered your newer local draft. Saving it to this computer." });
-        this.saveSong(draft.lines);
-      }
-    } catch (_) {}
+    await this.notepad.load();
     const { data: beats } = await this.sb.from("beats").select("*").eq("song_id", this.SONG_UUID).order("created_at", { ascending: false }).limit(1);
     if (beats && beats[0]) {
       const b = beats[0];
@@ -553,20 +552,7 @@ class Component extends DCLogic {
     this.setState({ stemsList: withUrls });
   };
 
-  saveSong = (lines) => {
-    const value = lines || this.state.lines;
-    try { localStorage.setItem("screwshop-draft", JSON.stringify({ lines: value, at: Date.now() })); } catch (_) {}
-    if (!this.sb || !this.state.session) { this.setState({ saveStatus: "NOT SAVED" }); return; }
-    const version = this._saveVersion = (this._saveVersion || 0) + 1;
-    this.setState({ saveStatus: "SAVING" });
-    this._saveChain = (this._saveChain || Promise.resolve()).then(async () => {
-      const { error } = await this.sb.from("songs").upsert({ id: this.SONG_UUID, user_id: "local", title: "SCREWSHOP SESSION", meta: JSON.stringify({ lines: value }) });
-      if (version === this._saveVersion) {
-        this.setState({ saveStatus: error ? "NOT SAVED" : "SAVED ON DISK" });
-        if (!error) { try { localStorage.removeItem("screwshop-draft"); } catch (_) {} }
-      }
-    }).catch(() => this.setState({ saveStatus: "NOT SAVED" }));
-  };
+  saveSong = (lines) => this.notepad?.save(lines);
 
   savePattern = async (steps, bpm) => {
     if (this.sb) await this.sb.from("settings").upsert({ id: "studio", steps, bpm });
@@ -613,14 +599,6 @@ class Component extends DCLogic {
     this.setState({ helpStep: this.state.helpStep + 1 });
   };
   prevHelp = () => this.setState({ helpStep: Math.max(this.state.helpStep - 1, 0) });
-  openCoach = (guide) => this.setState({ coachOpen: true, coachGuide: typeof guide === "string" ? guide : this.state.coachGuide, coachStep: 0, helpOpen: false, tab: "screw" });
-  closeCoach = () => this.setState({ coachOpen: false });
-  setCoachGuide = (g) => this.setState({ coachGuide: g, coachStep: 0 });
-  nextCoach = () => {
-    if (this.state.coachStep >= this.MIX_GUIDES[this.state.coachGuide].steps.length - 1) { this.closeCoach(); return; }
-    this.setState({ coachStep: this.state.coachStep + 1 });
-  };
-  prevCoach = () => this.setState({ coachStep: Math.max(this.state.coachStep - 1, 0) });
 
   uploadToLibrary = () => {
     const inp = document.createElement("input");
@@ -630,13 +608,16 @@ class Component extends DCLogic {
   };
 
   addLibraryFile = async (file) => {
-    if (!this.sb || !this.state.session) return;
-    const uid = this.state.session.user.id;
+    if (!this.sb || !this.state.session) { this.setState({ notice: "Not uploaded: connect to your ScrewShop computer first (Start ScrewShop.cmd)." }); return; }
+    const uid = this.state.session.user.id, name = file.name.replace(/\.[^.]+$/, "");
     const path = uid + "/library/" + window.ScrewShop.id() + "_" + file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    this.setState({ notice: "Uploading " + file.name + "…" });
     const { error } = await this.sb.storage.from("beats").upload(path, file);
-    if (error) return;
-    await this.sb.from("library").insert({ user_id: uid, name: file.name.replace(/\.[^.]+$/, ""), storage_path: path });
-    this.loadLibrary();
+    if (error) { this.setState({ notice: "Upload failed for " + file.name + ": " + error.message }); return; }
+    const saved = await this.sb.from("library").insert({ user_id: uid, name, storage_path: path });
+    if (saved.error) { this.setState({ notice: "Upload failed for " + file.name + ": " + saved.error.message }); return; }
+    await this.loadLibrary();
+    this.setState({ notice: "Added " + name + " to SONGS." });
   };
 
   loadLibrary = async () => {
@@ -644,7 +625,7 @@ class Component extends DCLogic {
     const { data } = await this.sb.from("library").select("*").order("created_at", { ascending: false });
     if (!data) return;
     const withUrls = await Promise.all(data.map(async (row) => {
-      const { data: signed } = await this.sb.storage.from("beats").createSignedUrl(row.storage_path, 3600);
+      const { data: signed } = await this.sb.storage.from(row.bucket || "beats").createSignedUrl(row.storage_path, 3600);
       return { ...row, url: signed ? signed.signedUrl : null };
     }));
     this.setState({ library: withUrls });
@@ -690,7 +671,7 @@ class Component extends DCLogic {
   setAsBeat = (item) => { this.studio.setBeat(item); this.linkAsBeatRow(item); };
 
   requestSplit = async (item, mode) => {
-    if (!this.sb || !this.state.session) return;
+    if (!this.sb || !this.state.session) { this.setState({ notice: "Can't split yet: connect to your ScrewShop computer first (Start ScrewShop.cmd)." }); return; }
     const existing = this.state.splitJobs[item.id];
     if (existing && ["linking", "pending", "processing"].includes(existing.status)) return;
     const update = (job) => this.setState(prev => ({ splitJobs: { ...prev.splitJobs, [item.id]: job } }));
@@ -745,7 +726,7 @@ class Component extends DCLogic {
       this.refreshMidi();
       this.attachMidiListeners();
     } catch (e) {
-      this.setState({ midiSupported: false });
+      this.setState({ midiSupported: false, midiBlocked: true, notice: "MIDI access was blocked. In Chrome, click the icon left of the address, allow MIDI devices for this site, then press MIDI again." });
     }
   };
 
@@ -759,7 +740,7 @@ class Component extends DCLogic {
     if (!this._midiAccess) return;
     this._midiAccess.inputs.forEach((input) => {
       input.onmidimessage = (msg) => {
-        this.workspace?.midi(msg.data);
+        this.workspace?.midi(msg.data, {portId:input.id, receivedTime:msg.receivedTime});
       };
     });
   };
@@ -936,6 +917,9 @@ class Component extends DCLogic {
   };
 
   stopPlayback = () => {
+    for(const which of ['A','B']) { const deck=this.deckStore(which);if(deck.scratch)deck.scratch.resume=false;this.screwRoom?.endScratch(which); }
+    this.screwRoom?.stems.pause();
+    if(this.screwRoom) this.screwRoom.stems.position=0;
     this.studio?.halt();
     this._resumeTransport = null;
     if (this._beatAudio) { this._beatAudio.pause(); this._beatAudio.currentTime = 0; }
@@ -959,6 +943,7 @@ class Component extends DCLogic {
   };
 
   toggleTransport = async () => {
+    if(this.state.transportSource === 'screw-stems') { const editor=this.screwRoom.stems; return editor.playing ? editor.pause() : this.screwRoom.run(()=>editor.play()); }
     if(this.studio?.playing || this.state.transportSource === "studio") { await this.studio.toggle(); return; }
     const S = this.state;
     const anyPlaying = S.beatPlaying || S.deckA.playing || S.deckB.playing || S.seqPlaying || S.padPlaying;
@@ -1004,11 +989,13 @@ class Component extends DCLogic {
 
   setSourceBpm = (value) => {
     const bpm = Number(value);
+    if (this.state.tab === "studio" && this.studio) { this.studio.setBpm(bpm); return; }
     if (Number.isFinite(bpm) && bpm >= 30 && bpm <= 300) this.setState({ sourceBpm: bpm });
   };
 
   setPlaybackBpm = (value) => {
     const bpm = Number(value);
+    if (this.state.tab === "studio" && this.studio) { this.studio.setPlayBpm(bpm); return; }
     if (Number.isFinite(bpm) && bpm >= 30 && bpm <= 300) this.setBeatRate(bpm / this.state.sourceBpm);
   };
 
@@ -1031,7 +1018,8 @@ class Component extends DCLogic {
   setBeatRate = (r) => {
     if (!Number.isFinite(r)) return;
     r = Math.max(0.25, Math.min(2, r));
-    if(this.state.transportSource === "studio") { this.studio.setRate(r); this.setState({beatRate:this.studio.rate}); return; }
+    if(this.state.transportSource === 'screw-stems') { const editor=this.screwRoom.stems,resume=editor.playing;editor.pause();editor.rate=r;editor.save();this.setState({beatRate:r});if(resume)this.screwRoom.run(()=>editor.play());return; }
+    if(this.state.transportSource === "studio" || this.state.tab === "studio") { this.studio.setRate(r); this.setState({beatRate:this.studio.rate}); return; }
     const a = this.getBeatAudio();
     a.playbackRate = r;
     if (this.state.transportSource === "decks") for (const which of ["A", "B"]) this.setDeckRate(which, r);
@@ -1047,12 +1035,19 @@ class Component extends DCLogic {
   };
 
   toggleBeatLoop = () => {
+    if(this.state.transportSource === 'screw-stems') { const editor=this.screwRoom.stems;editor.loop=!editor.loop;this.setState({beatLoop:editor.loop});return; }
     const a = this.getBeatAudio();
     a.loop = !this.state.beatLoop;
     this.setState({ beatLoop: a.loop });
   };
 
   seekBeat = (e) => {
+    if(this.state.transportSource === 'screw-stems') {
+      const editor=this.screwRoom.stems,resume=editor.playing,value=Number(e.target.value);
+      if(!Number.isFinite(value))return;
+      editor.pause();editor.position=Math.max(0,Math.min(editor.duration(),value));editor.syncTransport();
+      if(resume)this.screwRoom.run(()=>editor.play());return;
+    }
     const a = this.getBeatAudio();
     if (!a.src || this.state.transportSource !== "audio" || !Number.isFinite(a.duration)) return;
     a.currentTime = parseFloat(e.target.value);
@@ -1060,6 +1055,7 @@ class Component extends DCLogic {
   };
 
   seekBeatBy = (delta) => {
+    if(this.state.transportSource === 'screw-stems') { const editor=this.screwRoom.stems,resume=editor.playing;editor.pause();editor.position=Math.max(0,Math.min(editor.duration(),editor.position+delta*editor.rate));if(resume)this.screwRoom.run(()=>editor.play());return; }
     const a = this.getBeatAudio();
     if (!a.src || this.state.transportSource !== "audio") return;
     a.currentTime = Math.max(0, Math.min(a.duration || 0, a.currentTime + delta));
@@ -1082,8 +1078,15 @@ class Component extends DCLogic {
 
   ensureScrewLibs = async () => {
     if (this._Tone) return this._Tone;
-    this._Tone = await import("/vendor/tone.js");
-    return this._Tone;
+    this._toneLoading ||= (async () => {
+      const T = await import("/vendor/tone.js");
+      // A plain browser AudioContext (not Tone's wrapper, which loads worklets from blob: URLs the CSP
+      // blocks) so the jog-wheel scratch worklet loads from /scratch-worklet.js like mix-worklet.js does.
+      try { T.setContext(new T.Context(new AudioContext({ latencyHint: "interactive" }))); } catch (e) { console.warn("Tone context:", e); }
+      this._Tone = T;
+      return T;
+    })();
+    return this._toneLoading;
   };
 
   deckStore = (which) => (which === "A" ? this._deckA : this._deckB);
@@ -1115,37 +1118,57 @@ class Component extends DCLogic {
   };
 
   mountDeck = async (which, file) => {
-    const T = await this.ensureScrewLibs();
     const store = this.deckStore(which);
+    const token = store.loadToken = (store.loadToken || 0) + 1;
+    try {
+    const T = await this.ensureScrewLibs();
+    const audioBuf = await T.getContext().rawContext.decodeAudioData(await file.arrayBuffer());
+    if (token !== store.loadToken) return;
+    await this.mountDeckBuffer(which, file.name, audioBuf, null, token);
+    } catch (error) { this.setState({ notice: "Could not load deck " + which + ": " + error.message }); }
+  };
+
+  // Both tables can share one decoded record. With stems, instrumental and vocals play as a pair
+  // so the vocals get their own pitch shifter.
+  mountDeckBuffer = async (which, name, audioBuf, stems, token) => {
+    const store = this.deckStore(which);
+    if (token == null) token = store.loadToken = (store.loadToken || 0) + 1;
+    const T = await this.ensureScrewLibs();
+    const reverb = new T.Reverb({ decay: 3.5, wet: 0 });
+    await reverb.generate();
+    if (token !== store.loadToken) { reverb.dispose(); return; }
+    this.screwRoom?.endScratch(which);
     if (store.player) { try { store.player.stop(); store.player.dispose(); } catch (e) {} }
     if (store.reverb) { try { store.reverb.dispose(); } catch (e) {} }
     if (store.raf) cancelAnimationFrame(store.raf);
-
-    const arrayBuf = await file.arrayBuffer();
-    const ctx = T.getContext().rawContext;
-    const audioBuf = await ctx.decodeAudioData(arrayBuf);
-
-    const reverb = new T.Reverb({ decay: 3.5, wet: 0 });
-    await reverb.generate();
     if (store.eq) store.eq.dispose();
     if (store.gain) store.gain.dispose();
     const eq = new T.EQ3(0, 0, 0);
     const gain = new T.Gain(1).toDestination();
     reverb.connect(eq); eq.connect(gain);
-    const player = new T.Player(audioBuf).connect(reverb);
+    store.pitch?.dispose(); store.vocalPitch?.dispose(); store.tape?.dispose();
+    const pitch = new T.PitchShift({ pitch: 0, wet: 0 });
+    const tape = window.ScrewChop.makeTape(T, null, store.tapeValue || 0);
+    pitch.connect(tape.input); tape.output.connect(reverb);
+    const vocalPitch = new T.PitchShift({ pitch: 0, wet: 0 }).connect(pitch);
+    const player = stems
+      ? new window.ScrewChop.PairPlayer([new T.Player(stems.instrumental).connect(pitch), new T.Player(stems.vocals).connect(vocalPitch)])
+      : new T.Player(audioBuf).connect(pitch);
     player.playbackRate = 1;
 
     const peaks = this.computePeaks(audioBuf, 500);
-    Object.assign(store, { player, reverb, eq, gain, buffer: audioBuf, peaks, loopStart: null, loopEnd: null, startedAt: 0, startOffset: 0 });
+    Object.assign(store, { player, pitch, tape, pitchValue: 0, vocalPitch, vocalPitchValue: 0, stems: stems || null, rate: 1, chopMarks: null, reversed: null, reverb, eq, gain, buffer: audioBuf, peaks, loopStart: null, loopEnd: null, startedAt: 0, startOffset: 0 });
 
-    this.setState(prev => ({ ["deck" + which]: { ...prev["deck" + which], fileName: file.name, loaded: true, playing: false, rate: 1, reverbOn: false, loopOn: false } }));
+    this.setState(prev => ({ ["deck" + which]: { ...prev["deck" + which], fileName: name, loaded: true, playing: false, rate: 1, reverbOn: false, loopOn: false } }));
     this.applyDeckMix();
     this.setDeckTone(which, "bass", this.state["deck" + which].bass || 0);
     this.setDeckTone(which, "treble", this.state["deck" + which].treble || 0);
     this.startDeckLoop(which);
+    this.screwRoom?.deckLoaded(which);
   };
 
   toggleDeckPlay = async (which) => {
+    this.screwRoom?.stems.pause();
     const store = this.deckStore(which);
     if (!store.player) { this.setState({ notice: "Load a track on deck " + which + " first." }); return; }
     const S = this.state["deck" + which];
@@ -1173,6 +1196,7 @@ class Component extends DCLogic {
   setDeckRate = (which, rate) => {
     const store = this.deckStore(which);
     if (this.state["deck" + which].playing) { store.startOffset = this.deckPosition(which); store.startedAt = this._Tone.now(); }
+    store.rate = rate;
     if (store.player) store.player.playbackRate = rate;
     this.setState(prev => ({ ["deck" + which]: { ...prev["deck" + which], rate } }));
   };
@@ -1196,7 +1220,7 @@ class Component extends DCLogic {
       if (store.player.loop) {
         store.player.loopStart = store.loopStart; store.player.loopEnd = store.loopEnd;
         // CHOP locks you straight into the loop.
-        if (S.playing) { store.player.start(now, store.loopStart); store.startOffset = store.loopStart; store.startedAt = now; }
+        if (S.playing) { store.player.restart(now, store.loopStart); store.startOffset = store.loopStart; store.startedAt = now; }
         else store.startOffset = store.loopStart;
       } else if (S.playing) { store.startOffset = posNow; store.startedAt = now; }
     }
@@ -1207,7 +1231,8 @@ class Component extends DCLogic {
     const store = this.deckStore(which);
     if (!store.buffer) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const t = ((e.clientX - rect.left) / rect.width) * store.buffer.duration;
+    const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * store.buffer.duration;
+    if (!e.shiftKey) { this.screwRoom.seek(which, t); return; }
     if (store.loopStart == null || store.loopEnd != null) {
       store.loopStart = t; store.loopEnd = null;
     } else {
@@ -1221,7 +1246,7 @@ class Component extends DCLogic {
     const d = this.deckStore(which), state = this.state["deck" + which];
     const live = state.playing || d.player?.state === "started";
     const now = at != null ? at : (this._Tone ? this._Tone.now() : 0);
-    let pos = (d.startOffset || 0) + (live && this._Tone ? Math.max(0, now - (d.startedAt || 0)) * (state.rate || 1) : 0);
+    let pos = (d.startOffset || 0) + (live && this._Tone ? Math.max(0, now - (d.startedAt || 0)) * (d.rate ?? state.rate ?? 1) : 0);
     if (d.player?.loop && d.loopEnd > d.loopStart && pos >= d.loopEnd) pos = d.loopStart + ((pos - d.loopStart) % (d.loopEnd - d.loopStart));
     return Math.max(0, Math.min(pos, d.buffer?.duration || 0));
   };
@@ -1257,6 +1282,7 @@ class Component extends DCLogic {
     return d.startOffset >= (d.buffer?.duration || 0) ? 0 : d.startOffset || 0;
   };
   playBothDecks = async () => {
+    this.screwRoom?.stems.pause();
     const decks = ["A", "B"].filter(w => this.deckStore(w).player);
     if (!decks.length) { this.setState({ notice: "Load a track on a deck first." }); return; }
     await this.ensureScrewLibs(); await this._Tone.start();
@@ -1280,15 +1306,6 @@ class Component extends DCLogic {
     const posA = this.deckPosition("A", t);
     if (this.state.deckA.playing) this.startDeckAt("B", t, posA);
     else { this.pauseDeckAt("B", t); B.startOffset = posA; B.startedAt = t; this.forceUpdate(); }
-  };
-  // Minus pulls deck B behind A (earlier in the song); plus pushes it ahead.
-  nudgeB = (delta) => {
-    const B = this.deckStore("B");
-    if (!B.player || !B.buffer || !this._Tone) return;
-    const t = this._Tone.now() + 0.02;
-    const pos = Math.min(Math.max(this.deckPosition("B", t) + delta, 0), B.buffer.duration);
-    if (this.state.deckB.playing) this.startDeckAt("B", t, pos);
-    else { B.startOffset = pos; B.startedAt = t; this.forceUpdate(); }
   };
   cueDeck = (which) => {
     const d = this.deckStore(which);
@@ -1323,7 +1340,7 @@ class Component extends DCLogic {
         this.setState(prev => ({ ["deck"+which]: { ...prev["deck"+which], playing:false } }));
       }
       const now = performance.now();
-      if (this.state["deck"+which].playing) store.angle = ((store.angle || 0) + (now-(store.lastTick || now)) * 0.2 * this.state["deck"+which].rate) % 360;
+      if (this.state["deck"+which].playing) store.angle = ((store.angle || 0) + (now-(store.lastTick || now)) * 0.2 * (store.rate ?? this.state["deck"+which].rate)) % 360;
       store.lastTick = now;
       const record = document.getElementById("vinyl-"+which);
       if (record) record.style.transform = "rotate("+(store.angle || 0)+"deg)";
@@ -1394,55 +1411,27 @@ class Component extends DCLogic {
 
   HELP_STEPS = [
     { title: "Welcome to ScrewShop", body: "A rap writing studio: write bars with live rhyme highlighting, load a beat, chop and screw records, record vocal takes, and build beats on a sampler with your MIDI keyboard. Everything you make is saved on your computer and follows you between your phone and computer. Tap NEXT to walk through each tab." },
-    { title: "SONGS — your project folder", body: "Upload any MP3 or WAV here. Each file gets its own row you can rename, and buttons to SET AS BEAT (loads it into the transport bar) or send it to a SCREW deck. To split a song into instruments, head to M-Audio / Sampler." },
-    { title: "NOTEPAD — your verse book", body: "Write freely on the ruled page. Return starts a bar; arrow keys move normally. Matching rhyme sounds are highlighted. Open the word desk for rhymes, a thesaurus, wordplay and optional tips. Everything autosaves locally as you type." },
-    { title: "STUDIO — multitrack, GarageBand style", body: "Tracks stack down the page with a bar-and-beat ruler on top. IMPORT AUDIO puts your beat on Track 1. Open LOOPS & FILES and drag songs, split stems or sound-pack pieces onto a track (or the empty lane for a new track). Drag clips to move them; they snap to the beat. Drag a clip's right edge past its end to loop it. Drag along the top of the ruler to set a yellow CYCLE region that repeats. CLICK turns on the metronome, COUNT-IN gives you one bar before recording, and RECORD adds a new vocal track at the playhead. Wear headphones. Everything saves on your computer." },
-    { title: "SCREW — chop and screw", body: "Two turntables and a mixer. Each deck has a clock: where you are, time left, and song length. Load a song on each, drag SCREW SPEED to slow it down (pitch drops with it, the authentic way), flip on SYRUP for reverb, and click the waveform twice to set a loop, then hit CHOP to ride it. PLAY BOTH / PAUSE BOTH / STOP BOTH run both decks together, MATCH B → A lines deck B up with A, and NUDGE pushes B behind or ahead. Want it step by step? Tap LEARN TO MIX WITH TRILL below." },
-    { title: "M-Audio / Sampler", body: "Browse saved sounds, preview them, and drag onto 16 pads or keys. On touch, select a sound then tap a destination. Drum mode maps different samples; the two Instrument modes repitch a sample across keys. MIDI Learn saves your actual controls. Record captures editable notes into the sequencer; use Edit notes for velocity and duration. Save Kit and Save Beat keep the project playable." },
-    { title: "Sampler to Studio", body: "The sampler sound browser includes Quick and Full split, packs, stems, chops and saved beats. Send to Studio renders WAV internally and adds clips without exporting and reimporting. Changes stay editable in the sampler; Update Studio render explicitly refreshes existing clips while preserving arrangement. Studio records vocals on separate tracks and exports the finished WAV or MP3 mix." },
+    { title: "SONGS — your music hub", body: "Find uploaded songs, Studio mixes, polished versions, split stems, recordings and packs here. Preview a row to listen. Use More for Quick or Full split, Load sampler pad, Chop to pad or a SCREW deck. Save your current Studio mix as a new WAV in SONGS. Mix & clarity creates a separate polished version and lets you compare it with the original." },
+    { title: "NOTEPAD — your verse book", body: "Name your song above the ruled page and press SAVE SONG. MY SONGS keeps each song's lyrics on its own page; choose a title to keep writing or press + NEW SONG for a blank page. Lyrics and names autosave locally as you type. Return starts a bar; arrow keys move normally. Matching rhyme sounds are highlighted. Open the word desk for rhymes, a thesaurus, wordplay and optional tips." },
+    { title: "STUDIO — multitrack, GarageBand style", body: "Tracks stack down the page with a bar-and-beat ruler on top. IMPORT AUDIO puts your beat on Track 1. Open SOUND LIBRARY and drag songs, split stems or sound-pack pieces onto a track (or the empty lane for a new track). Drag clips to move them; they snap to the beat. Drag a clip's right edge past its end to loop it. Drag along the top of the ruler to set a yellow CYCLE region that repeats. CLICK turns on the metronome, COUNT-IN gives you one bar before recording, and RECORD adds a new vocal track at the playhead. Wear headphones. Everything saves on your computer." },
+    { title: "SCREW — chop and screw", body: "New here? On the SCREW tab press ▶ WALK ME THROUGH A SCREW MIX: it lights up each control, waits for you, and can do any step for you. Pick a song and LOAD ON BOTH TABLES: the same record goes on table A and table B, like DJ Screw. The pitch fader slows tempo and pitch together and shows the BPM. Vocal pitch works once the song is split. While it plays, RUN IT BACK puts the other table a few beats behind and cuts to it, so a line repeats and the song drops back in. BUILD VERSION makes a DJ Screw or Michael Watts style version and saves it to SONGS." },
+    { title: "M-Audio / Sampler", body: "New here? On this tab press ▶ MAKE A BEAT FROM A SONG or ▶ PROGRAM A BEAT ON THE SEQUENCER for a step-by-step walkthrough. Choose LOAD FROM SONGS to find originals, split stems and sounds. In SONGS choose Load sampler pad and a destination, or Chop to pad to highlight a phrase. Pads 1–16 (drums / chops) maps different samples; the two Instrument modes repitch a sample across keys. MIDI Learn saves your actual controls. Record captures editable notes into the sequencer; use Edit notes for velocity and duration. Save Kit and Save Beat keep the project playable." },
+    { title: "Sampler to Studio", body: "Send to Studio renders WAV internally and adds clips without exporting and reimporting. Changes stay editable in the sampler; Update Studio render explicitly refreshes existing clips while preserving arrangement. Studio records vocals on separate tracks. SAVE MIX TO SONGS keeps a new finished version in your shared library; WAV and MP3 export still download a copy." },
     { title: "Settings & MIDI", body: "The gear icon has rhyme sensitivity, display toggles, a MIDI DEVICES panel (shows your keyboard once it's plugged in and Chrome grants access), and local studio settings. That's the whole app — tap the Trill GUIDE portrait anytime to come back here." },
   ];
 
-
-  // Trill's mixing lessons. They sit on top of the SCREW room so the decks stay
-  // usable while you follow along; `focus` outlines the control a step means.
-  MIX_GUIDES = {
-    blend: { name: "BLEND 2 SONGS", steps: [
-      { title: "Two roads, one highway", focus: null, body: "Each turntable is a road with its own traffic (a song). The crossfader is the on-ramp: it decides how much of each road merges onto the highway, and the highway is what you hear. The goal is to get from song A to song B with no bump in the road." },
-      { title: "Load both decks", focus: "load", body: "Tap LOAD TRACK on deck A and deck B, or send songs from SONGS with → DECK A / → DECK B. Under each waveform, the clock shows the big number (where you are in the song), the time left on the right, and the song's LENGTH." },
-      { title: "Start deck A", focus: "xfade", body: "Slide A ← BLEND → B all the way to A, then tap deck A's record or its PLAY button. That's the song everybody hears right now." },
-      { title: "Match the speed", focus: "speed", body: "Two songs usually move at different speeds. Move deck B's SCREW SPEED until its beat feels as fast as A's. In ScrewShop, slowing a record also drops its pitch. That's the screw sound, and it's on purpose. There's no BPM counter on the decks yet, so trust your ears." },
-      { title: "Drop B in on the 1", focus: "play", body: "Hit PLAY on deck B right on a big beat of A, the kick that starts a bar. If the kicks drift apart, use NUDGE B below the decks. The left buttons pull B back and the right buttons push it ahead, until both kicks land together." },
-      { title: "Fine-tune the lineup", focus: "nudge", body: ".02 is a tiny tap, like brushing the record with a finger. .1 is a push, and 1s is a big jump. If you're lining up two copies of the same song, MATCH B → A does it in one tap." },
-      { title: "Swap the bass", focus: "eq", body: "Two basslines at once turn to mud. Before you blend, pull deck B's BASS down. As you bring B in, bring its BASS back up while you pull A's BASS down. That's how DJs swap basslines cleanly." },
-      { title: "Crossfade over", focus: "xfade", body: "Slowly slide the crossfader from A to B over about 8 to 16 bars. In the middle you hear both. All the way right, only B plays. Go slow, because a fast slide sounds like a car swerving lanes. CENTER MIX snaps it back to the middle." },
-      { title: "Now go again", focus: "load", body: "Once B is carrying the mix, pause A and load the next song on it. Then do the same thing going the other way. That's a mix: A → B → A → B, one smooth merge after another." },
-    ] },
-    screw: { name: "SCREW IT", steps: [
-      { title: "How DJ Screw did it", focus: null, body: "Screw played two copies of the same record, slowed way down, and flipped between them so words repeat and echo. Picture two trucks with the same load on the same road, one a few car-lengths behind the other. Flick between them and you hear the same words twice." },
-      { title: "Same song on both decks", focus: "load", body: "LOAD TRACK with the same song on deck A and deck B. It has to be the exact same record on both." },
-      { title: "Slow it down", focus: "speed", body: "Pull deck A's SCREW SPEED down to around 0.70× to 0.80×. The pitch drops with it, and that's the syrup. Turn on SYRUP if you want reverb on top." },
-      { title: "Play A, then MATCH", focus: "match", body: "PLAY deck A, then tap MATCH B → A. Deck B jumps to A's exact spot and speed and starts playing. Deck B's clock should say LOCKED WITH A." },
-      { title: "Put B a beat behind", focus: "nudge", body: "Tap −.1 or −1s until deck B's clock says BEHIND A by about half a second to a second. That's roughly one beat at screwed speed. Put the crossfader in the middle and you'll hear the doubled, echoing sound." },
-      { title: "Chop", focus: "xfade", body: "Keep the crossfader on A. Right on a word you like, flick it to B and back fast. Because B is behind, that word comes back around: tha-tha-that. That's the chop. Save it for the words that hit, not every line." },
-      { title: "Ride it, loop it", focus: "chop", body: "Let lines ride between chops. To repeat a whole phrase, click the waveform twice to mark a loop, then tap CHOP. PLAY BOTH, PAUSE BOTH, and STOP BOTH keep the decks together, and STOP BOTH takes both back to the start." },
-      { title: "One honest note", focus: null, body: "The decks are live-only for now. ScrewShop doesn't save your deck mix as a file yet. The top Record button captures your microphone, not the decks. Saving the deck mix is on the to-do list." },
-    ] },
-    phones: { name: "HEADPHONES?", steps: [
-      { title: "Why DJs use two outputs", focus: null, body: "At a party, the speakers play what the crowd hears. The headphones play something only the DJ hears: the next song, so they can line it up in private. Two different sounds at the same time need two outputs." },
-      { title: "Do you need that? Mostly no", focus: null, body: "When you're making a mix at home or a screw tape, nobody's in the room to hear you line things up. Screw tapes went straight to tape, and you just heard the mix. One output (your speakers or your headphones) works fine." },
-      { title: "How ScrewShop handles it now", focus: "clock", body: "Both decks play through your computer's selected speakers or headphones, together. Instead of sneaking a listen in your headphones, line decks up by the numbers with the clocks and MATCH B → A. Deck B's clock tells you exactly how far behind or ahead of A it is." },
-      { title: "The cheap upgrade: split cue", focus: null, body: "One pair of headphones, no extra gear: your left ear hears the deck you're prepping and your right ear hears the mix. Lots of DJ apps do this, and it could be added to ScrewShop as a switch." },
-      { title: "The pro setup", focus: null, body: "A USB DJ controller or a two-output audio interface gives you a real speaker output plus a separate headphone jack. You only need it once you're playing live for a room." },
-    ] },
-  };
 
   renderVals() {
     const S = this.state, fams = this.families(), self = this, E = this.E;
     const efam = E ? E.rhymeFamilies(S.lines.map(l => String(l).trim()), this.sens) : null;
     const tabs = ["SONGS", "NOTEPAD", "STUDIO", "SCREW", "M-AUDIO / SAMPLER"].map(n => {
       const id = n === "NOTEPAD" ? "write" : n === "M-AUDIO / SAMPLER" ? "packs" : n.toLowerCase(), on = S.tab === id;
-      return { name: n, mark: on ? "var(--color-accent)" : "transparent", fg: on ? "var(--color-text)" : "var(--color-neutral-600)", onTap: () => { this.setState({ tab: id, word: null, edit: -1, ammo: false }); if(id === "studio" && !this.state.beatPlaying && !this.state.deckA.playing && !this.state.deckB.playing) this.setState({transportSource:"studio",transportTitle:"STUDIO · Multitrack session"}); } };
+      return { name: n, current: on ? "page" : "false", mark: on ? "var(--color-accent)" : "transparent", fg: on ? "var(--color-text)" : "var(--color-neutral-600)", onTap: () => {
+        this.setState({ tab: id, word: null, edit: -1, ammo: false });
+        const idle=!(this.studio?.playing||this.state.beatPlaying||this.state.deckA.playing||this.state.deckB.playing||this.state.seqPlaying||this.state.padPlaying);
+        if(id === "studio" && idle) this.setState({transportSource:"studio",transportTitle:"STUDIO · Multitrack session"});
+        if(id === "screw" && idle) this.screwRoom?.selectTransport();
+      } };
     });
     const bars = S.lines.map((line, li) => {
       const syl = this.lineSyl(line);
@@ -1633,7 +1622,7 @@ class Component extends DCLogic {
         ["deck" + which + "ReverbBg"]: D.reverbOn ? "var(--color-accent)" : "transparent",
         ["deck" + which + "ReverbFg"]: D.reverbOn ? "var(--color-bg)" : "var(--color-text)",
         ["deck" + which + "Rate"]: D.rate,
-        ["deck" + which + "RateLabel"]: D.rate.toFixed(2) + "×",
+        ["deck" + which + "RateLabel"]: D.rate.toFixed(2) + "×" + (this.deckStore(which).bpm ? " · " + (this.deckStore(which).bpm * D.rate).toFixed(1) + " BPM" : ""),
         ["loadDeck" + which]: () => this.loadDeck(which),
         ["toggleDeck" + which + "Play"]: () => this.toggleDeckPlay(which),
         ["toggleDeck" + which + "Loop"]: () => this.toggleLoopOn(which),
@@ -1646,12 +1635,14 @@ class Component extends DCLogic {
     return {
       notice: S.notice, dismissNotice: () => this.setState({ notice: "" }),
       transportTitle: S.transportTitle || S.beatLoaded || "Pick a track, stem or take to play",
-      transportSeekable: S.transportSource === "audio" && S.beatDur > 0,
+      transportSeekable: ["audio", "screw-stems"].includes(S.transportSource) && S.beatDur > 0,
       transportPlayLabel: (this.studio?.playing || S.beatPlaying || S.deckA.playing || S.deckB.playing || S.seqPlaying || S.padPlaying) ? "Pause audio" : "Play audio",
       transportPlayIcon: (S.beatPlaying || S.deckA.playing || S.deckB.playing || S.seqPlaying || S.padPlaying) ? "Ⅱ" : "▶",
       transportRecordLabel: S.rec ? "Stop recording" : "Record audio",
       toggleTransport: this.toggleTransport, stopTransport: this.stopTransport,
-      sourceBpm: S.sourceBpm, playbackBpm: Math.round(S.sourceBpm * S.beatRate),
+      // On the Studio tab the transport shows (and edits) the Studio session's own tempo and speed.
+      sourceBpm: S.tab === "studio" && this.studio ? this.studio.bpm : S.sourceBpm,
+      playbackBpm: S.tab === "studio" && this.studio ? this.studio.playBpm() : Math.round(S.sourceBpm * S.beatRate),
       onSourceBpm: (e) => this.setSourceBpm(e.target.value), onPlaybackBpm: (e) => this.setPlaybackBpm(e.target.value),
       kb: S.edit >= 0,
       authed: !!S.session,
@@ -1694,21 +1685,6 @@ class Component extends DCLogic {
       centerCrossfade: () => this.setCrossfade(0),
       crossfade: S.crossfade, onCrossfade: (e) => this.setCrossfade(parseFloat(e.target.value)),
       playBothDecks: this.playBothDecks, pauseBothDecks: this.pauseBothDecks, stopBothDecks: this.stopBothDecks, matchBtoA: this.matchBtoA,
-      nudgeOpts: [[-1, "−1s"], [-0.1, "−.1"], [-0.02, "−.02"], [0.02, "+.02"], [0.1, "+.1"], [1, "+1s"]].map(([d, label]) => ({ label, aria: "Nudge deck B " + (d < 0 ? "back " : "ahead ") + Math.abs(d) + " seconds", onTap: () => this.nudgeB(d) })),
-      ...(() => {
-        const G = this.MIX_GUIDES[S.coachGuide], step = G.steps[S.coachStep] || G.steps[0];
-        const focus = S.coachOpen ? step.focus : null;
-        const hl = (k) => (focus === k ? "0 0 0 3px #e2c8ff, 0 0 18px #b77cff" : "none");
-        return {
-          coachOpen: S.coachOpen, openCoach: () => this.openCoach(), closeCoach: this.closeCoach, nextCoach: this.nextCoach, prevCoach: this.prevCoach,
-          coachGuides: Object.keys(this.MIX_GUIDES).map(k => ({ name: this.MIX_GUIDES[k].name, onTap: () => this.setCoachGuide(k), bg: k === S.coachGuide ? "#9b67dd" : "transparent", fg: k === S.coachGuide ? "#16091f" : "#ede4fa" })),
-          coachStepNo: S.coachStep + 1, coachStepCount: G.steps.length, coachTitle: step.title, coachBody: step.body,
-          coachBackFg: S.coachStep === 0 ? "#6f6180" : "#ede4fa",
-          coachNextLabel: S.coachStep === G.steps.length - 1 ? "DONE ✓" : "NEXT →",
-          hlLoad: hl("load"), hlClock: hl("clock"), hlPlay: hl("play"), hlChop: hl("chop"), hlSpeed: hl("speed"),
-          hlEq: hl("eq"), hlXfade: hl("xfade"), hlBoth: hl("both"), hlMatch: hl("match"), hlNudge: hl("nudge"),
-        };
-      })(),
       tabs, bars, grid, sections, takes, wave, beatModes,
       library, hasLibrary: S.library.length > 0, noLibrary: S.library.length === 0,
       uploadToLibrary: this.uploadToLibrary,
@@ -1721,13 +1697,13 @@ class Component extends DCLogic {
       playBeat: this.toggleBeatPlay,
       beatPlaying: S.beatPlaying,
       beatPlayIcon: S.beatPlaying ? "❚❚" : "▶",
-      beatPosLabel: S.rec ? "REC " + this.fmtTime(S.secs) : S.transportSource === "audio" ? this.fmtTime(S.beatPos) : "LIVE", beatDurLabel: S.transportSource === "audio" ? this.fmtTime(S.beatDur) : "—",
+      beatPosLabel: S.rec ? "REC " + this.fmtTime(S.secs) : ["audio", "screw-stems"].includes(S.transportSource) ? this.fmtTime(S.beatPos / (S.transportSource === "screw-stems" ? S.beatRate : 1)) : "LIVE", beatDurLabel: ["audio", "screw-stems"].includes(S.transportSource) ? this.fmtTime(S.beatDur / (S.transportSource === "screw-stems" ? S.beatRate : 1)) : "—",
       beatPos: S.beatPos, beatDur: S.beatDur || 0.01,
       seekBeat: this.seekBeat,
       seekBeatBack: () => this.seekBeatBy(-5), seekBeatFwd: () => this.seekBeatBy(5),
       toggleBeatPlay: this.toggleBeatPlay,
       stopBeat: this.stopBeat,
-      beatRate: S.beatRate, beatRateLabel: S.beatRate.toFixed(2) + "×",
+      beatRate: S.tab === "studio" && this.studio ? this.studio.rate : S.beatRate, beatRateLabel: (S.tab === "studio" && this.studio ? this.studio.rate : S.beatRate).toFixed(2) + "×",
       onBeatRate: (e) => this.setBeatRate(parseFloat(e.target.value)),
       transportRecBg: S.rec ? "#ef4444" : "rgba(239,68,68,.65)",
       toggleBeatLoop: this.toggleBeatLoop, beatLoopState: S.beatLoop ? "ON" : "OFF",
@@ -1792,7 +1768,7 @@ class Component extends DCLogic {
       godPrompt: () => this.setState({ ammo: false, tab: "songs" }),
       ammoNote: "Ammo writes in the " + S.lane + " lane and stays inside your syllable range. Nothing is inserted until you tap it.",
       settings: S.settings, openSettings: () => { this.setState({ settings: true }); this.initMidi(); this.loadDevices(); }, closeSettings: () => this.setState({ settings: false }),
-      helpOpen: S.helpOpen, openHelp: this.openHelp, openCoachFromHelp: () => this.openCoach("blend"), closeHelp: this.closeHelp, prevHelp: this.prevHelp, nextHelp: this.nextHelp,
+      helpOpen: S.helpOpen, openHelp: this.openHelp, closeHelp: this.closeHelp, prevHelp: this.prevHelp, nextHelp: this.nextHelp,
       helpStepNo: S.helpStep + 1, helpStepCount: this.HELP_STEPS.length,
       helpTitle: this.HELP_STEPS[S.helpStep].title, helpBody: this.HELP_STEPS[S.helpStep].body,
       helpBackFg: S.helpStep === 0 ? "var(--color-neutral-500)" : "var(--color-text)",
@@ -1822,7 +1798,7 @@ class Component extends DCLogic {
       studioSources: () => this.setState({studioShowSources:S.studioShowSources === false}),
       studioShowSources: S.studioShowSources !== false,
       studioLoopsClass: S.studioShowSources ? "on" : "",
-      studioBusy: !!this.studio?.busy,
+      studioBusy: !this.studio?.ready || !!this.studio?.busy,
       studioPending: !!this.studio?.pending,
       studioRetry: () => this.studio.saveRecording(),
       studioPlay: () => this.studio.toggle(),
@@ -1832,6 +1808,13 @@ class Component extends DCLogic {
       studioPlayIcon: this.studio?.playing ? "❚❚" : "▶",
       studioBpm: this.studio?.bpm || 82,
       studioSetBpm: e => this.studio.setBpm(e.target.value),
+      studioRate: this.studio?.rate || 1,
+      studioPlayBpm: this.studio ? this.studio.playBpm() : 82,
+      studioSetPlayBpm: e => this.studio.setPlayBpm(e.target.value),
+      studioSetRate: e => this.studio.setRate(parseFloat(e.target.value)),
+      studioSpeedLabel: (() => { const r = this.studio?.rate || 1; if (Math.abs(r - 1) < 0.005) return "ORIGINAL SPEED"; const st = 12 * Math.log2(r); return Math.round(r * 100) + "% speed · pitch " + (st > 0 ? "+" : "") + st.toFixed(1) + " st"; })(),
+      studioSpeed100: () => this.studio.setRate(1), studioSpeed90: () => this.studio.setRate(0.9), studioSpeed80: () => this.studio.setRate(0.8), studioSpeed70: () => this.studio.setRate(0.7),
+      studioSpeed100Class: Math.abs((this.studio?.rate || 1) - 1) < 0.005 ? "on" : "",
       studioCycle: () => this.studio.toggleCycle(),
       studioCycleClass: this.studio?.cycle?.on ? "on cyc" : "",
       studioMetro: () => this.studio.toggleMetronome(),
@@ -1849,10 +1832,12 @@ class Component extends DCLogic {
       studioRedo: () => this.studio.undo(true),
       studioOxygenOpen: !!S.oxygenOpen,
       studioOxygen: () => this.setState({tab:"packs"}),
+      studioSaveToSongs: () => this.workspace.run(async () => { await this.workspace.saveStudioToSongs(); this.setState({tab:"songs"}); }),
       studioExportMix: () => this.workspace.run(() => this.workspace.exportStudio()),
-      studioHasMp3: !!S.samplerMp3, studioExportMp3: () => this.workspace.run(() => this.workspace.exportStudio("mp3")),
+      studioHasMp3: !!S.samplerMp3, studioExportMp3: () => { const name = window.prompt("Name this song. It goes to SONGS and the ScrewShop\\mp3s folder:", "ScrewShop mix " + new Date().toLocaleDateString()); if (name == null || !name.trim()) return; this.workspace.run(async () => { const saved = await this.workspace.exportStudioMp3(name); if (saved) this.setState({ tab: "songs" }); }); },
       studioAddTrack: () => this.studio.addTrack(),
-      studioHint: S.rec ? "Recording a new vocal track… hit STOP to save it. Everything else keeps playing underneath." : "Drag clips to move them (they snap to the beat; hold Alt for free). Drag a clip's right edge past its end to loop it. Drag along the top of the ruler to set the cycle region. Click the ruler to move the playhead. RECORD adds a new vocal track at the playhead — wear headphones. Changing TEMPO moves the grid, not your audio.",
+      studioMixer: () => window.StudioMixer.toggle(this.studio),
+      studioHint: S.rec ? "Recording a new vocal track… hit STOP to save it. Everything else keeps playing underneath." : "Drag clips to move them (they snap to the beat; hold Alt for free). Drag a clip's right edge past its end to loop it. Drag along the top of the ruler to set the cycle region. Click the ruler to move the playhead. RECORD adds a new vocal track at the playhead — wear headphones. SONG BPM sets the grid; PLAY AT / the speed slider slows the whole session screwed-style (pitch drops), and recordings stay in sync at any speed.",
       studioStemsList: S.allStems.filter(f=>f.url).map(f=>{const name=f.trackName+" · "+f.kind;return {name,url:f.url,addLabel:"Add "+name+" on a new track",add:()=>this.studio.addClip(null,{name,url:f.url},this.studio.cursor)};}),
       studioNoStems: !S.allStems.length,
       studioLibrary: S.library.map(f=>({...f,addLabel:"Add "+f.name+" on a new track",add:()=>this.studio.addClip(null,{name:f.name,url:f.url},this.studio.cursor),use:()=>this.studio.setBeat(f),split:()=>this.requestSplit(f,"quick"),status:S.splitJobs[f.id]?.error || S.splitJobs[f.id]?.status || ""}))

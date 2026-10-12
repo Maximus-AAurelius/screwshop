@@ -5,3 +5,4 @@ soundfile==0.14.0
 imageio-ffmpeg==0.6.0
 cryptography==50.0.1
 setuptools==84.0.0
+segno==1.6.6

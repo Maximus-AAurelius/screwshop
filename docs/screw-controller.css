@@ -1,0 +1,199 @@
+/* SCREW tables dressed as a two-deck DJ controller: black body, gold jog plates with an LED ring,
+   backlit orange pads, gold-capped faders. Loaded after workspace.css so it wins at equal weight. */
+#app-card .dj-console {
+  --cx-gold: #d6b25e; --cx-gold-hi: #f4e2a0; --cx-gold-lo: #8c6a24; --cx-pad: #ff7a1a; --cx-ink: #e9e4d8; --cx-dim: #8f8778;
+  gap: 0; padding: 14px 10px 18px; border: 1px solid #3b3424; border-radius: 22px;
+  background: linear-gradient(160deg, #222224, #111113 55%, #0b0b0c);
+  box-shadow: 0 22px 44px #000c, inset 0 1px #ffffff1a, inset 0 -2px #00000080;
+}
+#app-card .dj-console .dj-deck, #app-card .dj-console .dj-mixer { background: transparent; border: 0; border-radius: 0; box-shadow: none; padding: 10px 14px; }
+#app-card .dj-console .dj-mixer { border-left: 1px solid #2d2d2f; border-right: 1px solid #2d2d2f; background: linear-gradient(#18181a, #131315); }
+#app-card .dj-console .deck-heading strong, #app-card .dj-console .mixer-channel strong { color: var(--cx-gold); }
+#app-card .dj-console .deck-heading span { color: var(--cx-ink); }
+#app-card .dj-console .dj-mixer h3 { color: var(--cx-gold); letter-spacing: .14em; }
+#app-card .dj-console .dj-mixer p, #app-card .dj-console .mixer-channel label, #app-card .dj-console .crossfader { color: var(--cx-dim); }
+#app-card .dj-console button { background: linear-gradient(#2b2b2e, #18181a); border: 1px solid #3a3a3d; color: var(--cx-ink); box-shadow: inset 0 1px #ffffff12, 0 2px 3px #0008; }
+#app-card .dj-console button:hover { border-color: var(--cx-gold); }
+#app-card .dj-console button[aria-pressed=true] { background: linear-gradient(#e7c56f, #a9842f); color: #1a1405; border-color: var(--cx-gold-hi); }
+#app-card .dj-console input { accent-color: var(--cx-gold); }
+#app-card .dj-console canvas, #app-card .dj-console .deck-clock { background: #050506; border-color: #2a2a2c; }
+
+/* Jog wheel: ridged outer ring (nudge), LED ring, brushed-gold top plate (scratch). */
+#app-card .dj-console .platter-bed { padding: 14px 0 16px; }
+#app-card .dj-console .tonearm, #app-card .dj-console .rpm { display: none; }
+#app-card .dj-console .vinyl {
+  width: 88%; max-width: 300px; border: 0; touch-action: none; cursor: grab;
+  background: repeating-conic-gradient(#1b1b1d 0 1.5deg, #2c2c2f 1.5deg 3deg);
+  box-shadow: 0 0 0 2px #070707, 0 0 0 4px #6d5a2f, 0 14px 26px #000d, inset 0 0 0 7px #0e0e0f, inset 0 0 22px #000;
+}
+#app-card .dj-console .vinyl:active { cursor: grabbing; }
+#app-card .dj-console .vinyl::before {
+  content: ""; position: absolute; inset: 17%; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff6d655, transparent 45%),
+    conic-gradient(from 15deg, var(--cx-gold-hi), #b38a33, #f2d98a, var(--cx-gold-lo), var(--cx-gold-hi), #b38a33, #f2d98a, var(--cx-gold-lo), var(--cx-gold-hi));
+  box-shadow: 0 0 0 3px #0b0b0c, 0 0 0 5px #3b3220, inset 0 0 0 2px #ffe9a899, inset 0 0 20px #0007;
+}
+#app-card .dj-console .vinyl::after {
+  inset: 9%; background: repeating-conic-gradient(var(--cx-pad) 0 2.2deg, transparent 2.2deg 12deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 47.5%, #000 48% 49.8%, transparent 50.3%);
+  mask: radial-gradient(circle, transparent 0 47.5%, #000 48% 49.8%, transparent 50.3%);
+  filter: drop-shadow(0 0 3px var(--cx-pad)); opacity: .9;
+}
+#app-card .dj-console .record-label { width: 26%; height: 26%; z-index: 1; box-shadow: 0 0 0 2px #0b0b0c, 0 0 0 4px var(--cx-gold), 0 3px 8px #0009; }
+#app-card .dj-console .spindle { width: 5px; height: 12%; top: 19%; left: calc(50% - 2.5px); border: 0; border-radius: 3px; background: #141414; box-shadow: 0 0 0 1px #f4e2a066; z-index: 2; }
+
+/* Tempo slider on the outside edge: left on A, right on B (mirrored like the hardware). */
+#app-card .dj-console .platter-bed .tt-pitch { color: var(--cx-dim); }
+#app-card .dj-console .platter-bed .tt-pitch b { color: var(--cx-ink); }
+#app-card .dj-console #turntable-B .platter-bed:has(.tt-pitch) { padding-left: 0; padding-right: 56px; }
+#app-card .dj-console #turntable-B .platter-bed .tt-pitch { left: auto; right: 4px; }
+
+/* Performance pads */
+#app-card .dj-console .tt-pads { margin: 4px 0 10px; }
+#app-card .dj-console .tt-pad-modes { display: flex; gap: 5px; margin-bottom: 6px; }
+#app-card .dj-console .tt-pad-modes button { flex: 1; min-height: 28px; padding: 5px 4px; font-size: 9px; }
+#app-card .dj-console .tt-pad-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 7px; border-radius: 8px; background: #0a0a0b; box-shadow: inset 0 1px 4px #000; }
+#app-card .dj-console .tt-pad-grid button {
+  min-height: 44px; padding: 4px 2px; border-radius: 5px; font: 800 10px system-ui; letter-spacing: .02em; touch-action: manipulation;
+  background: linear-gradient(#3a2414, #22150b); border: 1px solid #ff7a1a88; color: #ffb877;
+  box-shadow: inset 0 0 10px #ff7a1a33, 0 2px 3px #000a;
+}
+#app-card .dj-console .tt-pad-grid[data-mode=slow] button { background: linear-gradient(#3a2e12, #221a09); border-color: #d6b25e99; color: var(--cx-gold-hi); box-shadow: inset 0 0 10px #d6b25e33, 0 2px 3px #000a; }
+#app-card .dj-console .tt-pad-grid button:active, #app-card .dj-console .tt-pad-grid button.hit { background: var(--cx-pad); color: #1a0d00; box-shadow: 0 0 14px #ff7a1acc, inset 0 0 6px #fff5; }
+#app-card .dj-console .tt-pad-grid[data-mode=slow] button:active, #app-card .dj-console .tt-pad-grid[data-mode=slow] button.hit { background: var(--cx-gold); color: #1a1405; box-shadow: 0 0 14px #d6b25ecc; }
+
+/* Transport: CUE and PLAY with LED-coloured lettering */
+#app-card .dj-console .deck-buttons button { min-height: 40px; }
+#app-card .dj-console .deck-buttons button:first-child { color: #ffae4a; border-color: #ff9c2a77; }
+#app-card .dj-console .deck-buttons .deck-play { background: linear-gradient(#26332a, #141a16); color: #6dff8f; border-color: #4cd96488; text-shadow: 0 0 6px #4cd96488; }
+
+/* Per-table controls and mixer pads in the controller colours */
+#app-card .dj-console .tt-ctrl { border-top-color: #2d2d2f; }
+#app-card .dj-console .tt-read [data-tt-bpm] { color: var(--cx-ink); }
+#app-card .dj-console .tt-read [data-tt-pct], #app-card .dj-console .tt-range output { color: var(--cx-gold-hi); }
+#app-card .dj-console .tt-range { color: var(--cx-dim); }
+#app-card .dj-console .tt-slow { background: linear-gradient(#3a2e12, #221a09); border-color: var(--cx-gold); color: var(--cx-gold-hi); }
+#app-card .dj-console .tt-slow[aria-pressed=true] { background: var(--cx-gold); color: #1a1405; }
+#app-card .dj-console .tt-flick { background: linear-gradient(#3a2414, #22150b); border-color: var(--cx-pad); color: #ffb877; }
+#app-card .dj-console .tt-flick:active { background: var(--cx-pad); color: #1a0d00; }
+#app-card .dj-console .tt-lag { color: var(--cx-dim); }
+#app-card .dj-console .tt-lag select { background: #0e0e10; border-color: #3a3a3d; color: var(--cx-ink); }
+#app-card .tt-waves { background: #070708; border-color: #2d2d2f; }
+@media (max-width: 760px) {
+  #app-card .dj-console .dj-mixer { border: 0; border-top: 1px solid #2d2d2f; border-bottom: 1px solid #2d2d2f; }
+  #app-card .dj-console { padding: 10px 6px 14px; border-radius: 16px; }
+}
+@media (max-width: 470px) { #app-card .dj-console .tt-pad-grid button { min-height: 40px; font-size: 9px; } }
+
+/* ---- SCREW fits one screen on a laptop or desktop, like Serato / rekordbox / VirtualDJ:
+   scrolling waveforms on top, deck A | mixer | deck B under them, and SCREW STATION in its own
+   scrolling column. Nothing on the decks needs page scrolling while you mix. ---- */
+@media (min-width: 1100px) and (min-height: 600px) {
+  /* Give the room the height: no banner, slim heading and tabs, decks have their own transport. */
+  html #app-card:has(.dj-scroll[data-mode=decks]) .studio-brand,
+  html #app-card:has(.dj-scroll[data-mode=decks]) .studio-transport { display: none; }
+  html #app-card:has(.dj-scroll[data-mode=decks]) .workspace-heading { padding: 6px 16px !important; }
+  html #app-card:has(.dj-scroll[data-mode=decks]) .workspace-heading > div:first-child > div:last-child { font-size: 18px !important; }
+  html #app-card:has(.dj-scroll[data-mode=decks]) .studio-tabs { padding-bottom: 0 !important; }
+  html #app-card:has(.dj-scroll[data-mode=decks]) .studio-tabs button { min-height: 38px !important; }
+
+  #app-card .dj-scroll[data-mode=decks] {
+    container-type: size; padding: 8px 12px 10px;
+    grid-template-columns: minmax(0,1fr) 330px; grid-template-rows: auto auto auto auto 1fr; row-gap: 8px; column-gap: 12px;
+  }
+  #app-card .dj-scroll[data-mode=decks] > .dj-intro { display: none; }
+  #app-card .dj-scroll[data-mode=decks] > .screw-modes { grid-column: 1; grid-row: 1; position: static; padding: 0; }
+  #app-card .dj-scroll[data-mode=decks] > .screw-modes button { padding: 7px 10px; font-size: 11px; }
+  /* Walkthrough launcher shrinks to one line next to the mode buttons. */
+  #app-card .dj-scroll[data-mode=decks] > .sg-launch { grid-column: 2; grid-row: 1; padding: 4px 6px; gap: 6px; flex-wrap: nowrap; }
+  #app-card .dj-scroll[data-mode=decks] > .sg-launch > div { display: none; }
+  #app-card .dj-scroll[data-mode=decks] > .sg-launch .sg-launch-row { flex-wrap: nowrap; width: 100%; }
+  #app-card .dj-scroll[data-mode=decks] > .sg-launch button { min-height: 30px; padding: 5px 8px; font-size: 10px; }
+  #app-card .dj-scroll[data-mode=decks] > .sg-launch .sg-launch-go { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #app-card .dj-scroll[data-mode=decks] > .tt-waves { grid-row: 2; padding: 6px; }
+  #app-card .dj-scroll[data-mode=decks] > .tt-waves canvas { height: clamp(84px, 14cqh, 150px); }
+  #app-card .dj-scroll[data-mode=decks] > .dj-console { grid-row: 3; grid-template-columns: minmax(0,1fr) 138px minmax(0,1fr); gap: 0; padding: 8px 8px 10px; border-radius: 16px; }
+  #app-card .dj-scroll[data-mode=decks] > .dj-sync { grid-row: 4; }
+  html #app-card:has(.dj-scroll[data-mode=decks]) .app-notice { padding: 3px 12px !important; }
+  html #app-card:has(.dj-scroll[data-mode=decks]) .app-notice button { padding: 3px 8px !important; }
+  #app-card .dj-scroll[data-mode=decks] > .dj-instructions { grid-row: 5; font-size: 10px; }
+  /* SCREW STATION: its own scroll, always beside the decks. */
+  #app-card .dj-scroll[data-mode=decks] > .screw-box { grid-column: 2; grid-row: 2 / -1; position: sticky; top: 0; max-height: calc(100cqh - 46px); overflow: auto; overscroll-behavior: contain; padding: 12px 14px; }
+
+  /* Each deck: platter and pads side by side, mirrored on B like a two-deck controller. */
+  #app-card .dj-scroll[data-mode=decks] .dj-deck { display: grid; grid-template-columns: auto minmax(0,1fr); column-gap: 10px; row-gap: 5px; align-content: start; padding: 4px 8px; }
+  #app-card .dj-scroll[data-mode=decks] .dj-deck > * { grid-column: 1 / -1; margin-top: 0; margin-bottom: 0; }
+  #app-card .dj-scroll[data-mode=decks] .dj-deck > .platter-bed { grid-column: 1; grid-row: 4; }
+  #app-card .dj-scroll[data-mode=decks] .dj-deck > .tt-pads { grid-column: 2; grid-row: 4; align-self: center; }
+  #app-card .dj-scroll[data-mode=decks] .dj-deck > .deck-buttons { grid-row: 5; }
+  #app-card .dj-scroll[data-mode=decks] .dj-deck > .tt-ctrl { grid-row: 6; }
+  #app-card .dj-scroll[data-mode=decks] #turntable-B { grid-template-columns: minmax(0,1fr) auto; }
+  #app-card .dj-scroll[data-mode=decks] #turntable-B > .platter-bed { grid-column: 2; }
+  #app-card .dj-scroll[data-mode=decks] #turntable-B > .tt-pads { grid-column: 1; }
+  #app-card .dj-scroll[data-mode=decks] .deck-heading { min-height: 0; }
+  #app-card .dj-scroll[data-mode=decks] .deck-heading button { min-height: 28px; padding: 4px 8px; }
+  #app-card .dj-scroll[data-mode=decks] .dj-deck > canvas:not(.deck-clock) { height: 26px !important; width: 100%; }
+  #app-card .dj-scroll[data-mode=decks] .deck-clock { aspect-ratio: auto; height: 34px !important; }
+  #app-card .dj-scroll[data-mode=decks] .platter-bed { min-height: 0; padding: 2px 0 2px 46px; }
+  #app-card .dj-scroll[data-mode=decks] #turntable-B .platter-bed { padding: 2px 46px 2px 0; }
+  /* The pitch fader stretches to the platter's height instead of hanging below it. */
+  #app-card .dj-scroll[data-mode=decks] .platter-bed { min-height: 136px; }
+  #app-card .dj-scroll[data-mode=decks] .platter-bed .tt-pitch { top: 0; bottom: 0; gap: 2px; }
+  #app-card .dj-scroll[data-mode=decks] .platter-bed .tt-pitch input { min-height: 40px; }
+  #app-card .dj-scroll[data-mode=decks] .vinyl { width: clamp(112px, 22cqh, 180px); }
+  #app-card .dj-scroll[data-mode=decks] .tt-pad-modes button { min-height: 24px; padding: 3px; }
+  #app-card .dj-scroll[data-mode=decks] .tt-pad-grid { gap: 5px; }
+  #app-card .dj-scroll[data-mode=decks] .tt-pad-grid button { min-height: clamp(30px, 6cqh, 44px); padding: 2px; font-size: 9px; }
+  #app-card .dj-scroll[data-mode=decks] .deck-buttons button { min-height: 32px; }
+  /* Under each deck: BPM + slow on one line, the three sliders side by side. */
+  #app-card .dj-scroll[data-mode=decks] .tt-ctrl { grid-template-columns: repeat(3, minmax(0,1fr)); gap: 4px 10px; padding-top: 6px; margin-top: 2px; }
+  #app-card .dj-scroll[data-mode=decks] .tt-ctrl > .tt-read, #app-card .dj-scroll[data-mode=decks] .tt-ctrl > .tt-slow-row { grid-column: 1 / -1; }
+  #app-card .dj-scroll[data-mode=decks] .tt-ctrl > .tt-read { display: none; }
+  #app-card .dj-scroll[data-mode=decks] .tt-slow-row button { min-height: 30px; }
+
+  /* Mixer: keep EQ, levels, crossfader and the cut/flick/lag section; drop the nameplate. */
+  #app-card .dj-scroll[data-mode=decks] .dj-mixer { padding: 6px 6px; }
+  #app-card .dj-scroll[data-mode=decks] .dj-mixer > h3, #app-card .dj-scroll[data-mode=decks] .dj-mixer > p { display: none; }
+  #app-card .dj-scroll[data-mode=decks] .mixer-channels { flex: none; gap: 8px; }
+  #app-card .dj-scroll[data-mode=decks] .mixer-channel label { margin-top: 6px; gap: 4px; }
+  #app-card .dj-scroll[data-mode=decks] .mixer-channel .channel-fader { height: clamp(54px, 10cqh, 96px); }
+  #app-card .dj-scroll[data-mode=decks] .crossfader { margin-top: 8px; }
+  #app-card .dj-scroll[data-mode=decks] .dj-mixer > button { min-height: 28px; padding: 4px; }
+  #app-card .dj-scroll[data-mode=decks] .tt-cut { gap: 5px; margin-top: 8px; }
+  #app-card .dj-scroll[data-mode=decks] .tt-cut button { min-height: 32px; }
+  #app-card .dj-scroll[data-mode=decks] .dj-sync button { min-height: 30px; padding: 4px 8px; }
+  /* LAG length and LAG OFF-AIR share one row so the mixer is no taller than a deck. */
+  #app-card .dj-scroll[data-mode=decks] .tt-cut { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
+  #app-card .dj-scroll[data-mode=decks] .tt-cut > .tt-cut-pads, #app-card .dj-scroll[data-mode=decks] .tt-cut > .tt-flick { grid-column: 1 / -1; }
+  #app-card .dj-scroll[data-mode=decks] .tt-cut .tt-flick { min-height: 38px; }
+  #app-card .dj-scroll[data-mode=decks] .tt-lag { gap: 2px; }
+  #app-card .dj-scroll[data-mode=decks] .tt-lag select { padding: 4px 2px; font-size: 11px; }
+  #app-card .dj-scroll[data-mode=decks] .tt-cut [data-tt-lag-go] { align-self: end; min-height: 28px; padding: 2px; font-size: 9px; line-height: 1.1; }
+  #app-card .dj-scroll[data-mode=decks] .tt-cut kbd { display: none; }
+  #app-card .dj-scroll[data-mode=decks] > .dj-instructions { display: none; }
+  #app-card .dj-scroll[data-mode=decks] .sync-group { display: flex; align-items: center; gap: 8px; padding: 5px 8px; }
+  #app-card .dj-scroll[data-mode=decks] .sync-group span { margin: 0; white-space: nowrap; }
+  #app-card .dj-scroll[data-mode=decks] .sync-group div { flex: 1; }
+}
+/* Short laptop screens (1366x768): drop the breadcrumb so the decks still fit. */
+@media (min-width: 1100px) and (min-height: 600px) and (max-height: 820px) {
+  html #app-card:has(.dj-scroll[data-mode=decks]) .workspace-heading > div:first-child > div:first-child { display: none; }
+  html #app-card:has(.dj-scroll[data-mode=decks]) .studio-tabs button { min-height: 34px !important; }
+  #app-card .dj-scroll[data-mode=decks] .tt-range { gap: 0 6px; }
+  #app-card .dj-scroll[data-mode=decks] .deck-buttons button, #app-card .dj-scroll[data-mode=decks] .tt-slow-row button { min-height: 28px; padding-top: 2px; padding-bottom: 2px; }
+  /* The big waveforms already show where each record is, so the small overview strip goes. */
+  #app-card .dj-scroll[data-mode=decks] .dj-deck > canvas:not(.deck-clock) { display: none; }
+  /* Sync status and zoom float over the bottom of the waveforms instead of taking a row. */
+  #app-card .dj-scroll[data-mode=decks] > .tt-waves { position: relative; }
+  #app-card .dj-scroll[data-mode=decks] .tt-wave-bar { position: absolute; left: 12px; right: 12px; bottom: 10px; margin: 0; pointer-events: none; text-shadow: 0 1px 3px #000; }
+  #app-card .dj-scroll[data-mode=decks] .tt-wave-bar .tt-zoom { pointer-events: auto; }
+  #app-card .dj-scroll[data-mode=decks] > .tt-waves canvas { height: clamp(84px, 15cqh, 150px); }
+  #app-card .dj-scroll[data-mode=decks] .mixer-channel label { margin-top: 2px; gap: 2px; }
+  #app-card .dj-scroll[data-mode=decks] .mixer-channel .channel-fader { height: 46px; }
+  #app-card .dj-scroll[data-mode=decks] .crossfader { margin-top: 4px; }
+  #app-card .dj-scroll[data-mode=decks] .dj-mixer > button { min-height: 24px; padding: 2px; }
+  #app-card .dj-scroll[data-mode=decks] .tt-cut { margin-top: 4px; gap: 4px; }
+  #app-card .dj-scroll[data-mode=decks] .tt-cut button { min-height: 28px; }
+  #app-card .dj-scroll[data-mode=decks] .tt-cut .tt-flick { min-height: 32px; }
+  #app-card .dj-scroll[data-mode=decks] > .dj-console { padding-top: 4px; padding-bottom: 6px; }
+}
